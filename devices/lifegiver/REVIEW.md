@@ -4,6 +4,12 @@ _2026-10-15. A critical read of DESIGN, BUILD_PLAN, RESEARCH, HANDOFF and CONVEN
 sources and the wanderer-synth reference. Findings only; nothing here is decided until the user says so. Each item:
 problem → why it matters → recommendation._
 
+**Status: resolved (2026-10-15).** All findings are folded into DESIGN, BUILD_PLAN and RESEARCH. The user's decisions:
+any mix of the five variations at any strengths (C4; order as a choice dropped); knobs 0 = as read, turns on top of
+the stage, with a stage arc on each knob (C5); back = up to about −3 dB (C1); true stereo pan stays on the stage (M4);
+no "input changed" light (M9); up to 4 takes; role changes only by button (M5); 7 roles, adding Support and Bass.
+Kept as the record of why; the current design is DESIGN.md.
+
 Severity: **C** = contradiction or gap that breaks the concept or the build if not settled now · **M** = major, settle
 before the phase it touches · **R** = research correction · **A** = architecture/reference note · **U** = underused
 · **S** = small.

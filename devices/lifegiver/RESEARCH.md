@@ -1,6 +1,7 @@
 # Lifegiver — Research notes
 
-_2026-10-15. Theory the design must respect. Paraphrased; sources at the end._
+_2026-10-15 (corrected after `REVIEW.md`: punch, distance, loudness, timbral models). Theory the design must respect.
+Paraphrased; sources at the end._
 
 ## How timbre is perceived
 - Timbre-space studies agree on three robust dimensions: **attack** (log attack time), **brightness** (spectral centroid) and, less stable, **spectral flux** (how the spectrum changes over time). Besides these, many sounds carry **specificities**: unique features (hollow, metallic, a pinched end) that no shared dimension explains. [1]
@@ -25,17 +26,19 @@ _2026-10-15. Theory the design must respect. Paraphrased; sources at the end._
 
 ## Dynamics
 - Reference compressor design: feedforward, gain smoothing in the dB domain after the gain computer, **smooth decoupled peak** detector, adjustable soft knee. This gives the fewest artifacts and release time independent of the amount of compression. RMS detection tracks loudness better (levelling). [10]
-- Perceived **punch** comes mostly from transient energy in the 64 Hz–1 kHz octaves with short onset times; 2–8 kHz transients read as presence or weight rather than punch. [11]
+- Perceived **punch** is modelled from transient energy in the 64 Hz–1 kHz octaves; punch fell as band frequency rose up to a pivot near 1 kHz. The 2–8 kHz bands trended upward again and were left for further work (not "presence"). Longer onsets lower punch, more so in upper bands. [11]
 
-**For Lifegiver:** Punch acts on low/low-mid transients; Edge/presence is a separate thing. Time constants on low frequencies must stay longer than the period of the lowest note (the reading gives F0) or the dynamics distort.
+**For Lifegiver:** Punch acts on low/low-mid transients with short onsets; what happens above 1 kHz is untested, so
+Bite/presence stays a separate control and any upper-band punch effect is measured on our stems. Time constants on low frequencies must stay longer than the period of the lowest note (the reading gives F0) or the dynamics distort.
 
 ## Loudness and today's standards
-- Loudness is measured per ITU-R BS.1770 (K-weighting, LUFS). Spotify normalises to −14 LUFS and asks for true peak under −1 dBTP. Louder is not a win after normalisation. [12]
+- Loudness is measured per ITU-R BS.1770 (K-weighting, LUFS). Spotify normalises to −14 LUFS and asks for true peak under −1 dBTP. Louder is not a win after normalisation. [12] These are delivery specs for the finished master, not per-track goals: Live mixes tracks in floating point, so a channel device needs no limiter.
 - Commercial recordings converge on an industry target spectral curve. [13]
 - Popular music since 1986 is less noisy than before but still far more inharmonic than orchestral music (layering, distortion); producers seem conservative in the most sensitive ear range. [14]
 - Modern quality baseline (industry practice): oversampled or antialiased nonlinearities, dynamic (signal-dependent) EQ, gain-matched A/B, mono-safe lows.
 
-**For Lifegiver:** output gain-matched by K-weighted loudness, so any change is judged on tone, not level.
+**For Lifegiver:** BS.1770 is the measuring method. Make-up gain (static, from the closed loop on the takes) removes
+accidental level changes, so any change is judged on tone, not level; Compare is always loudness-matched.
 
 ## Assistants vs automatic
 - A decade of automatic mixing research: the problem is unsolved; systems range from black box to assistants (few controls, automating ballistics or make-up gain), semantic interfaces ("warm") and diagnostics. [15]
@@ -53,7 +56,11 @@ _2026-10-15. Theory the design must respect. Paraphrased; sources at the end._
 ## Measuring timbre qualities
 - Audio Commons built listener-trained models for hardness, depth, brightness, roughness, warmth, sharpness, boominess (0–100 regressions) and reverberation (yes/no). [18]
 
-**For Lifegiver:** close to the knob set; a starting point for how each knob is measured.
+- They are absolute 0–100 regressions; an independent check (DAGA 2025) covered only sharpness (r ≈ 0.73 against
+  brightness ratings) and roughness (r ≈ 0.67); the others are unverified. [22]
+
+**For Lifegiver:** close to the knob set, but a starting point only: each relative measure is verified on the test
+stems; expect warmth and depth to need our own definitions.
 
 ## Targets per instrument, resonances
 - Automatic EQ toward instrument-specific average spectra (zero-mean dB, ±12 dB limit) was preferred about 2:1 over the original in a small blind test; the authors argue one flat target can't suit all instruments, but didn't test it. [19]
@@ -62,9 +69,11 @@ _2026-10-15. Theory the design must respect. Paraphrased; sources at the end._
 **For Lifegiver:** the role sets what the target is; resonance taming is a cleanup step with one amount.
 
 ## Distance (depth)
-- In rooms at 1–6 m, listeners judged distance mainly from overall level; direct-to-reverberant ratio was an unreliable cue; broadband sounds were judged best; strong low-frequency reverb misleads. [21]
+- In rooms at 1–6 m, listeners judged distance mainly from overall level; direct-to-reverberant ratio (DRR) was an unreliable cue; broadband sounds were judged best; strong low-frequency reverb misleads. [21] Caveat: level varied with distance there, as in a real room, and level and DRR were highly correlated, so the study can't separate them.
+- When both cues are available, discrimination is best; level is generally more accurate, but DRR is useful for far sources and in reverberant rooms, and works when level is not available. [23]
 
-**For Lifegiver:** "back" on the stage = lower presence, darker top, softer attack, smaller level jumps, a little room; not just more reverb. Depth is a stage position, not a knob.
+**For Lifegiver:** level is kept small (0 to −3 dB; the fader owns level), so "back" leans on lower presence, darker top,
+softer attack, smaller level jumps and a little short room; not just more reverb. Depth is a stage position, not a knob.
 
 ## Sources
 1. McAdams et al. 1995, Perceptual scaling of synthesized musical timbres — https://three-mode.leidenuniv.nl/pdf/m/mcadams_etal1995pr.pdf
@@ -72,7 +81,7 @@ _2026-10-15. Theory the design must respect. Paraphrased; sources at the end._
 3. Stables, De Man, Reiss et al., Semantic description of timbral transformations (SAFE) — https://qmro.qmul.ac.uk/xmlui/bitstream/123456789/22150/1/De%20Man%20Semantic%20description%20of%20timbral%202016%20Accepted.pdf
 4. Plomp & Levelt 1965, Tonal consonance and critical bandwidth — https://www.mpi.nl/publications/item66382/tonal-consonance-and-critical-bandwidth
 5. Equivalent rectangular bandwidth (Glasberg & Moore 1990) — https://en.wikipedia.org/wiki/Equivalent_rectangular_bandwidth
-6. Geddes interview on distortion perception — https://www.tnt-audio.com/intervis/geddes_e.html
+6. Geddes interview on distortion perception — https://www.tnt-audio.com/intervis/geddes_e.html (to replace with the citable Geddes & Lee AES papers on perception of nonlinear distortion, 2003)
 7. Harmonic and intermodulation distortion of mixed signals under compression — https://repository.uwl.ac.uk/id/eprint/2033/
 8. Multiband Waveshaping Distortion (DAFx) — https://dafx.de/paper-archive/details/T3H0_pgOrplVcowqobXvpg
 9. Chowdhury, ADAA notebook — https://ccrma.stanford.edu/~jatin/Notebooks/adaa.html
@@ -88,3 +97,5 @@ _2026-10-15. Theory the design must respect. Paraphrased; sources at the end._
 19. Automatic equalization for individual instrument tracks using CNNs (DAFx 2024) — https://arxiv.org/html/2407.16691v1
 20. Auto-adaptive resonance equalization using dilated residual networks — https://arxiv.org/abs/1807.08636v1
 21. Auditory distance cues in rooms, Frontiers in Psychology 2017 — https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2017.00969/pdf
+22. Czedik-Eysenberg & Reuter, DAGA 2025 (timbral feature check) — https://homepage.univie.ac.at/christoph.reuter/unterwegs/DAGA2025_Czedik-Eysenberg_Reuter_PAPER.pdf
+23. Kolarik, Cirstea, Pardhan 2011, Perceiving auditory distance using level and direct-to-reverberant ratio cues — https://ueaeprints.uea.ac.uk/id/eprint/81360
