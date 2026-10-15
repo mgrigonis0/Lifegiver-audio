@@ -3,48 +3,63 @@
 _Last updated: 2026-10-15_
 
 ## What it does
-A Max for Live audio effect that listens to a sound for a few seconds, reads what it is (tone, timbre, dynamics, width), and sets character dials from that reading. The user picks what job the sound does in the mix and tweaks the dials by ear; the device works out the processing. An assistant: it gives an educated starting point, the user decides.
+A Max for Live audio effect that listens to a sound for a few seconds, reads what it is, and helps the user shape it for
+its job in the mix. The user places the sound on a **stage** (role, pan, distance, width, frequency range, intensity),
+corrects the reading with **relative knobs**, and picks or blends **strategies (A–E)** the device plans; a **Moves**
+console shows what it does. An assistant, not an autopilot.
 
 ## Current state
-- Design phase. Nothing built; no patch, JS or gen~ code exists.
-- Settled: the role, the flow, Step 1 (Listen), how dials behave (see Decisions).
-- In progress: Step 2, which dials and what each reads and does.
-- Not started: Step 3 (choosing the function in the mix), the processing design, UI mockup, build.
+- Design phase **complete**; nothing built (no engine, wrapper, patch or CI yet).
+- Full design: `DESIGN.md`. Build order: `BUILD_PLAN.md`. Theory + sources: `RESEARCH.md`.
+- Mockup v1 exists but is outdated (no pan, old absolute dials, no Moves console):
+  https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user).
 
-## Structure
-- `devices/lifegiver/RESEARCH.md`: theory notes with sources (timbre dimensions, roughness/ERB, distortion and aliasing, compressor design, punch, loudness). Read it before designing processing.
-- Planned flow: input → engine (one gen~ chain) → output. Analysis runs only while listening; the brain (JS) turns the reading plus dial settings into engine values.
+## Structure (planned, see BUILD_PLAN.md Phase 1)
+- `devices/lifegiver/source/engine/`: header-only C++17 engine (modules, analysis, brain), no Max deps.
+- `devices/lifegiver/source/projects/lifegiver_tilde/`: thin Max wrapper, external `lifegiver~`.
+- `devices/lifegiver/tools/build_device.py` (generates `.amxd`), `tools/tests/`, `tools/render` (offline WAV renders).
+- CI `.github/workflows/lifegiver.yml` → release `lifegiver-latest` (`lifegiver-mac.zip`). Copy Wanderer's setup.
+- Flow: input → Clean → tone → harmonics → dynamics → space → output (loudness-matched). Audio thread = chain;
+  main thread = brain; worker = analysis after a Listen take.
+
+## Controls (detail in DESIGN.md)
+| Control | Purpose |
+|---|---|
+| Arm / Re-listen | ~4 s take of non-silent input; sets every knob's zero |
+| Weight, Warm, Bite, Air, Texture, Punch, Tail, Steady | Relative: 0 = as read; ± = more/less of it for this sound; range scaled per sound |
+| Stage shape | Drag: pan (L/R), distance (front/back); stretch: width; edge: smooth ↔ driven |
+| Range strip | Low/high limit of the spectrum the sound may own |
+| Role: Lead, Hook, Rhythm, Bed, FX | Start position + the device's priorities |
+| Identity ↔ Fit | Exaggerate what makes the sound itself ↔ fit the role |
+| A–E + blend | Five strategies (Clean, Rich, Bold, Vintage, Tight); blend any two |
+| Moves console | Chosen actions in plain words: amount, on/off, method swap |
+| Amount | Strength and A/B: 0 % = original |
+| Compare, Clean | Level-matched before/after; cleanup amount |
 
 ## Decisions (and why)
-- It must WORK: results over flashiness; not a showpiece for amateurs.
-- Assistant, not autopilot: a device that "decides" ends up applying a few generic fixes.
-- Flow: sound (read by the device) + function in the mix (the user's choice, never guessed: the same sound can be a lead or background FX) → processing.
-- Listen = Arm: press Arm, then play by hand (or it starts at once on running audio); captures ~4 s of non-silent audio, skips silence, stops itself.
-- One take for now; designed so more takes can be added later.
-- Analysis only while listening, no live tracking: CPU.
-- Listen reads the input, never the output: it must not chase its own processing.
-- High notes: educated guess from the harmonic make-up, no high-note takes; level-triggered taming catches what the guess misses.
-- The reading sets each dial's value directly (not a ghost marker); the user tweaks it. Each dial shows only an indicator of how unsure the guess is.
-- Turning a dial away from the reading = the processing target (the gap is what gets processed).
-- Front: poetic dial names, each tied to one perceptual dimension (research: luminance, mass, texture + attack, dynamics, space).
-- Underneath: no fixed size; as many measurements and stages as accuracy needs. Each must earn its place by a measured improvement.
-- A small amount of space (ambience) belongs in the device.
-- Processing rules from theory: ERB-spaced analysis; saturation only soft, low-order, antialiased, and little or none on inharmonic/dense sounds; compressor = feedforward, dB-domain smoothing, smooth decoupled peak detector, soft knee, time constants longer than the lowest note's period; output gain-matched by loudness for honest A/B.
+- Assistant, not autopilot; the role is the user's choice, never guessed (the same sound can be lead or background FX).
+- Relative knobs, zero = the reading: descriptors mean different processing per sound and per person (RESEARCH §Descriptors).
+- The stage is the main way to steer; knob offsets add on top of the stage target.
+- Smartness = per-sound strategy: the same request uses different tools by sound type (DESIGN §7), within safety rules.
+- Identity ↔ Fit separates it from an auto-corrector (identity lives in a sound's specificities).
+- Five variations blended in the plan, re-solved to hit the target: one chain, no extra CPU, no comb filtering.
+- Moves console: visible, changeable strategy (opacity was the main complaint about assisted compressors).
+- Depth and width live on the stage, not as knobs (no duplicate controls). Distance = level + brightness cues, not reverb.
+- Modular engine: 13 tools + 10 methods (DESIGN §11–12); each must earn its place with a measured offline improvement.
+- C++ engine like wanderer-synth: faster, testable offline, no silent gen~ failures; the brain lives in C++ too.
+- Earlier decisions still in force: Listen = Arm, ~4 s, skips silence, input only, analysis only while listening,
+  one take for now; ERB-spaced analysis; soft antialiased low-order saturation, little/none on dense material;
+  reference compressor design with time constants from F0; output loudness-matched.
 
 ## Rejected approaches
-- Device decides the role: guesses wrong and processes in too few ways.
-- Live matching of several takes while playing: too much change before the core exists; CPU.
-- Ghost markers instead of setting dials: user wants the dial set, then tweaks it.
-- Saturation as a default move: intermodulation on complex sounds; must be conditional.
-- Per-dial XY pads, a multi-dot "how" pad, a Stage puck, a 2D character map, a Colour knob: too abstract, or duplicated the dials.
-- Exactly 6 dials: Bright mixes presence/harshness with air; Thick mixes weight with mud; attack without tail; no depth.
+Full list with reasons: DESIGN.md §15. Most likely to be re-proposed: sidechain listening (user hears the mix), Motion
+(another device's job), reference "like this" and taste learning (not the workflow), absolute dials or ghost markers,
+Wide/Depth knobs, triangle blend pad, audio-crossfade blending, gen~.
 
 ## Known issues
-- None (nothing built).
+- None (nothing built). Open: 169 px device height vs stage size (compact vs pop-out window).
 
 ## Next step
-Finish Step 2, one question at a time; don't rush to Step 3.
-1. Confirm the dial set. Current proposal (10, in four groups): Tone: Weight · Warm · Bite · Air | Texture | Dynamics: Punch · Tail · Steady | Space: Wide · Depth. User asked whether 6 was enough; this answers it, not yet confirmed.
-2. For each dial: what it reads and what turning it does.
-3. Character dial (how strongly the timbre reading steers processing): user wanted it as strength of behaviour; keep or drop.
-Then Step 3: how the function in the mix is chosen (proposed: a field back ↔ front × carry ↔ drive with landmarks Lead, Hook, Bed, Background FX; not confirmed). Also paused, not rejected: the "stage + blob" idea (the sound drawn as a shape you reshape).
+Phase 0 of BUILD_PLAN.md: update the mockup to v2 (pan, 8 relative knobs with readouts, Moves console with A–E and
+blend, Identity ↔ Fit, Amount, Compare, Clean) and settle the 169 px question; get the user's approval. Then Phase 1
+(pipeline skeleton copied from wanderer-synth). Ask the user for ~10 short dry test stems before Phase 2.
