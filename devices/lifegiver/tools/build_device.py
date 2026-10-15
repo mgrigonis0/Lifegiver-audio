@@ -113,11 +113,18 @@ pattr = obj("pattr state", (600, 300, 82, 22), ins=1, outs=3, parameter_enable=1
             saved_attribute_attributes=valueof("State", "State", 3, 0, 1, 0, invisible=1))
 pstate = obj("prepend statelist", (600, 330, 100, 22))
 wire(pattr, 0, pstate, 0); wire(pstate, 0, eng, 0)
+# second store (15c, while saving is being proven in Live): an unnamed dict saved with the set (its own unique
+# name, so no crosstalk), holding the same list under key "state". The engine reports which store answered.
+sdict = obj("dict", (760, 300, 40, 22), ins=2, outs=4, parameter_enable=1,
+            saved_attribute_attributes=valueof("State Dict", "State Dict", 3, 0, 1, 0, invisible=1), embed=0)
+wire(sdict, 0, eng, 0)                       # "dictionary <its name>" -> lifegiver~ reads key "state"
 route = obj("route getstate statelist", (200, 400, 150, 22), ins=2, outs=3)
 wire(eng, 2, route, 0)
-tget = obj("t b", (200, 430, 30, 22), ins=1, outs=1, outtypes=["bang"])
-wire(route, 0, tget, 0); wire(tget, 0, pattr, 0)
+tget = obj("t b b", (200, 430, 40, 22), ins=1, outs=2, outtypes=["bang", "bang"])
+wire(route, 0, tget, 0); wire(tget, 0, pattr, 0); wire(tget, 1, sdict, 0)
 wire(route, 1, pattr, 0)
+prep = obj("prepend replace state", (760, 430, 120, 22))
+wire(route, 1, prep, 0); wire(prep, 0, sdict, 0)
 
 # --------------------------------------------------------------------------------------------- layout (1x)
 DEV_H = 169
@@ -228,6 +235,8 @@ def check():
     # every name shared inside a device starts with --- (CONVENTIONS: duplicates must never crosstalk)
     for b in boxes:
         t = b["box"].get("text", "")
+        if t.strip() == "dict":
+            continue   # an unnamed dict gets its own unique name: private to this device
         if b["box"]["maxclass"] == "newobj" and re.match(r"^(send|s|receive|r|buffer~|dict|value|v|table)\b", t):
             assert " ---" in t, f"shared name without ---: {t}"
     longnames = [b["box"]["saved_attribute_attributes"]["valueof"]["parameter_longname"]

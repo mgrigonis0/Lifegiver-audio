@@ -188,67 +188,105 @@ static void testCodec() {
     fails += expect(refused == cases, "malformed lists are refused whole");
 }
 
+// a saved set as the stores would hold it
+static std::vector<double> savedList(uint32_t id, const std::string& by = VERSION) {
+    StateDoc d;
+    d.num["v"] = {1};
+    d.num["id"] = {(double)id};
+    d.str["saved_by"] = by;
+    return encodeState(d);
+}
+
 static void testState() {
     std::printf("saved state (as the Live set holds it)\n");
-    // a new device: its pattr holds a single 0. Nothing is saved while the set might still answer.
+    // a new device: both stores fresh. Nothing saved while the set might still answer; then saved into both.
     Rig a;
     a.init();
-    a.idle(1.4);
-    fails += expect(a.host.saves == 0 && !a.ctl->isRestored(), "nothing is saved in the first 1.4 s");
+    a.idle(4.0);
+    fails += expect(a.host.saves == 0 && a.ctl->isRestored() && a.host.logged("new device, id"), "new device decided at 1.5 s, nothing saved in the first 4 s");
     a.idle(1.0);
     const uint32_t id = a.ctl->id();
-    StateDoc sd;
-    const bool stored = a.host.storedDoc(sd);
+    StateDoc pd, dd;
     std::printf("    new device id %u, asked %d times, saves %d\n", id, a.host.requests, a.host.saves);
     fails += expect(a.host.requests == 3, "it asks the set three times (0, 300, 800 ms)");
-    fails += expect(a.host.saves == 1 && id >= 1000 && id <= 9999 && a.host.logged("new device, id"), "then: a new device with an id, saved once");
-    fails += expect(stored && sd.get1("id", 0) == id && sd.gets("saved_by") == VERSION, "the set now holds the list with that id and this build");
+    fails += expect(a.host.saves == 1 && TestHost::doc(a.host.pattr, pd) && TestHost::doc(a.host.dict, dd) &&
+                    pd.get1("id", 0) == id && dd.get1("id", 0) == id, "then saved once, into both stores");
+    fails += expect(a.host.logged("[load] pattr answered at 0 ms: 1 number(s), not a Lifegiver state") &&
+                    a.host.logged("[load] dict answered at 0 ms: nothing") && a.host.logged("[save] id " + std::to_string(id)),
+                    "the Max window traces every answer and the save");
     a.msg("amount", {50});
     a.idle(1.0);
     fails += expect(a.host.saves == 1, "moving Amount does not write the engine's state (Live saves it)");
 
-    // reopen: the same list comes back
+    // reopen with both stores intact
     Rig b;
-    b.host.stored = a.host.stored;
+    b.host.pattr.held = a.host.pattr.held; b.host.dict.held = a.host.dict.held;
     b.init();
-    b.idle(2.0);
-    fails += expect(b.ctl->id() == id && b.host.logged("state restored, id " + std::to_string(id)), "reopening restores the same id and says so");
-    fails += expect(b.host.saves == 0, "reopening with the same build saves nothing (no extra undo step)");
+    b.idle(6.0);
+    fails += expect(b.ctl->id() == id && b.host.logged("state restored from the pattr, id " + std::to_string(id)) && b.host.saves == 0,
+                    "reopening: same id, from the pattr, nothing re-saved (both stores agree)");
 
-    // Live restores the hidden parameter late (after 600 ms): the second ask still finds it
-    Rig c;
-    c.host.stored = a.host.stored;
-    c.host.readyAt = 600;
-    c.init();
-    c.idle(2.0);
-    fails += expect(c.ctl->id() == id && !c.host.logged("new device"), "a late restore (600 ms) is still found");
+    // only one store works in Live: either one is enough
+    for (int broken = 0; broken < 2; broken++) {
+        Rig c;
+        Store& gone = broken == 0 ? c.host.pattr : c.host.dict;
+        Store& kept = broken == 0 ? c.host.dict : c.host.pattr;
+        kept.held = atoms(savedList(id));
+        gone.held = gone.fresh;
+        c.init();
+        c.idle(6.0);
+        StateDoc gd;
+        fails += expect(c.ctl->id() == id && c.host.logged(std::string("state restored from the ") + kept.name) &&
+                        TestHost::doc(gone, gd) && gd.get1("id", 0) == id,
+                        broken == 0 ? "pattr empty, dict kept: restored from the dict, and the pattr re-filled"
+                                    : "dict empty, pattr kept: restored from the pattr, and the dict re-filled");
+    }
 
-    // a set saved by 15a holds a dict name ("dictionary 002lgstate"): treated as a new device, no crash
-    Rig d;
-    d.host.stored.clear();
+    // Live restores late, after "new device" (2.5 s) but before its save: the set's state wins
+    Rig e;
+    e.host.pattr.lateAt = 2500; e.host.pattr.lateValue = atoms(savedList(id));
+    e.init();
+    e.idle(8.0);
+    bool onlySetId = true;
+    for (uint32_t s : e.host.savedIds) if (s != id) onlySetId = false;
+    StateDoc ed2;
+    fails += expect(e.ctl->id() == id && e.host.logged("arrived late") && onlySetId && TestHost::doc(e.host.dict, ed2) && ed2.get1("id", 0) == id,
+                    "a restore at 2.5 s replaces the new id; the new id is never written, both stores hold the set's");
+
+    // very late (6 s, after the new device had saved): still the set's state wins, and is saved back
+    Rig f;
+    f.host.dict.lateAt = 6000; f.host.dict.lateValue = atoms(savedList(id));
+    f.init();
+    f.idle(9.0);
+    StateDoc fd;
+    fails += expect(f.ctl->id() == id && TestHost::doc(f.host.pattr, fd) && fd.get1("id", 0) == id,
+                    "a restore at 6 s still wins, and both stores end up holding it");
+    // beyond 10 s: too late, the device keeps its own (documented limit)
+    Rig g;
+    g.host.pattr.lateAt = 11000; g.host.pattr.lateValue = atoms(savedList(id));
+    g.init();
+    g.idle(12.0);
+    fails += expect(g.ctl->id() != id, "a restore after 10 s is ignored (limit)");
+
+    // a 15a set (a dict name in the pattr) and a 15b set (older build): handled
+    Rig h;
     Controller::Atom w1; w1.num = false; w1.s = "dictionary";
     Controller::Atom w2; w2.num = false; w2.s = "002lgstate";
-    d.host.stored = {w1, w2};
-    d.init();
-    d.idle(2.5);
-    StateDoc dd;
-    fails += expect(d.host.logged("new device") && d.host.storedDoc(dd), "a 15a set: new device, and from now on it saves properly");
+    h.host.pattr.held = {w1, w2};
+    h.init();
+    h.idle(6.0);
+    fails += expect(h.host.logged("new device") && h.host.logged("first word \"dictionary\"") && h.host.saves == 1, "a 15a set: new device, saved properly from then on");
+    Rig k;
+    k.host.pattr.held = atoms(savedList(id, "2026-10-15b"));
+    k.init();
+    k.idle(3.0);
+    StateDoc kd;
+    fails += expect(k.ctl->id() == id && k.host.saves == 1 && TestHost::doc(k.host.pattr, kd) && kd.gets("saved_by") == VERSION,
+                    "a 15b set: restored and re-saved by this build");
 
-    // a set saved by an older build: restored and re-saved in this build's format
-    StateDoc old = sd;
-    old.str["saved_by"] = "2026-01-01a";
-    Rig e;
-    e.host.stored.clear();
-    for (double x : encodeState(old)) { Controller::Atom t; t.d = x; e.host.stored.push_back(t); }
-    e.init();
-    e.idle(2.0);
-    StateDoc ed;
-    fails += expect(e.ctl->id() == id && e.host.saves == 1 && e.host.storedDoc(ed) && ed.gets("saved_by") == VERSION,
-                    "an older build's state is kept and re-saved");
-
-    // two devices: each its own list, its own id (no shared names involved at all)
+    // two devices get different ids
     int same = 0;
-    for (int i = 0; i < 20; i++) { Rig x, y; x.init(); y.init(); x.idle(2.1); y.idle(2.1); if (x.ctl->id() == y.ctl->id()) same++; }
+    for (int i = 0; i < 20; i++) { Rig x, y; x.init(); y.init(); x.idle(1.6); y.idle(1.6); if (x.ctl->id() == y.ctl->id()) same++; }
     fails += expect(same <= 1, "two new devices get different ids");
 }
 

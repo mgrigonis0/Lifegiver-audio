@@ -59,32 +59,61 @@ inline Stereo sineSig(double f, double sec, double sr, double amp = 0.5) {
 }
 
 // ---- the fake host --------------------------------------------------------------------------------
-// It plays [pattr state]: `stored` is what the set holds (Live restores it at `readyAt` ms; before that the pattr
-// still holds its initial 0). requestState() answers like the patch: "statelist <the pattr's value>".
+// It plays the patch's two stores: [pattr state] (answers "statelist <its value>") and the unnamed [dict] (answers
+// with its "state" key). Each can be broken (`works` false: it never keeps what it is given), restored by Live at
+// `readyAt` (before that it holds its fresh value), or pushed out by Live late on its own (`lateAt`).
+struct Store {
+    std::string name;
+    std::vector<Controller::Atom> held, fresh;
+    bool works = true;
+    double readyAt = 0;
+    double lateAt = -1;                        // Live restores the set's value at this time and the store outputs it
+    std::vector<Controller::Atom> lateValue;
+    bool lateDone = false;
+};
+
+inline std::vector<Controller::Atom> atoms(const std::vector<double>& v) {
+    std::vector<Controller::Atom> a;
+    for (double d : v) { Controller::Atom x; x.d = d; a.push_back(x); }
+    return a;
+}
+
 struct TestHost : Host {
-    std::vector<Controller::Atom> stored = {Controller::Atom()};   // a new device's pattr: a single 0
-    std::vector<Controller::Atom> beforeReady = {Controller::Atom()};
-    double readyAt = 0, now = 0;
+    Store pattr = makeStore("pattr", {Controller::Atom()});   // a new device's pattr: a single 0
+    Store dict = makeStore("dict", {});                       // a new device's dict: no "state" key
+    static Store makeStore(const std::string& n, const std::vector<Controller::Atom>& fresh) {
+        Store s; s.name = n; s.held = fresh; s.fresh = fresh; return s;
+    }
+    double now = 0;
     int saves = 0, requests = 0;
     bool echo = true;                    // pattr passes a stored value straight back out (assume the worst)
     std::vector<std::string> logs;
     Controller* ctl = nullptr;
+    void answer(Store& s, const std::vector<Controller::Atom>& v) {
+        if (s.name == "pattr") ctl->message("statelist", v); else ctl->stateFrom("dict", v);
+    }
     void requestState() override {
         requests++;
-        ctl->message("statelist", now >= readyAt ? stored : beforeReady);
+        for (Store* s : {&pattr, &dict}) answer(*s, now >= s->readyAt ? s->held : s->fresh);
     }
+    std::vector<uint32_t> savedIds;      // the id written by every save, in order
     void storeState(const std::vector<double>& v) override {
         saves++;
-        stored.clear();
-        for (double d : v) { Controller::Atom a; a.d = d; stored.push_back(a); }
-        if (echo) ctl->message("statelist", stored);
+        StateDoc d;
+        if (decodeState(v, d)) savedIds.push_back((uint32_t)d.get1("id", 0));
+        for (Store* s : {&pattr, &dict}) if (s->works) s->held = atoms(v);
+        if (echo && pattr.works) ctl->message("statelist", pattr.held);
+    }
+    void tick() {
+        for (Store* s : {&pattr, &dict})
+            if (s->lateAt >= 0 && !s->lateDone && now >= s->lateAt) { s->lateDone = true; s->held = s->lateValue; answer(*s, s->held); }
     }
     void log(const std::string& t) override { logs.push_back(t); }
     bool logged(const std::string& part) const { for (auto& l : logs) if (l.find(part) != std::string::npos) return true; return false; }
-    // what the set holds, decoded
-    bool storedDoc(StateDoc& d) const {
+    // what a store holds, decoded
+    static bool doc(const Store& s, StateDoc& d) {
         std::vector<double> v;
-        for (auto& a : stored) { if (!a.num) return false; v.push_back(a.d); }
+        for (auto& a : s.held) { if (!a.num) return false; v.push_back(a.d); }
         return decodeState(v, d);
     }
 };
@@ -107,7 +136,7 @@ struct Rig {
         for (double d : nums) { Controller::Atom x; x.d = d; a.push_back(x); }
         ctl->message(sel, a);
     }
-    void tick() { host.now = ms; if (ms - lastTick >= 15) { lastTick = ms; ctl->tick(ms); } }
+    void tick() { host.now = ms; if (ms - lastTick >= 15) { lastTick = ms; host.tick(); ctl->tick(ms); } }
     void init() { host.now = ms; ctl->init(ms); }
     // process `in` from `from` for `n` samples in blocks of `block`, appending to `out`
     void run(const Stereo& in, size_t from, size_t n, Stereo& out, long block = 64) {

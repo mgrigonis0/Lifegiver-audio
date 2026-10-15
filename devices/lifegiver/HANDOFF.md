@@ -12,11 +12,16 @@ console shows what it does and the measured result. An assistant, not an autopil
 - **Phase 0 done:** mockup v2 approved by the user ("good for a first go"): device strip at real 169 px (order Listen →
   Tone · Dynamics → Stage → Moves → Out, ~1200 px wide, all in the strip) + Moves pop-out window.
   https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user; v1 kept on it as history).
-- **Phase 1, build 2026-10-15b**: stereo pass-through with Amount (Live parameter), saved state (device id), version
+- **Phase 1, build 2026-10-15c**: stereo pass-through with Amount (Live parameter), saved state (device id), version
   printed by engine and patch, offline tests (all pass, 0 warnings), CI → release `lifegiver-latest`.
 - **Live test 1 (15a)**: loads, both version lines, Amount click-free, two devices get their own ids: all OK.
-  Save → reopen FAILED (both came back as new devices): the pattr had saved only a dict *name*. 15b stores the state
-  itself as a number list in the hidden parameter (`state.h`), asks 3× at load. **15b save → reopen not yet verified.**
+  Save → reopen FAILED: the pattr had saved only a dict *name*.
+- **Live test 2 (15b, state as a number list in the pattr)**: save → reopen FAILED again (both "new device"); cause
+  unknown (pattr never kept it? Live restores late? came back in another form?).
+- **15c = diagnosis + two routes**: every load answer and save is traced in the Max window (first 10 s); the state is
+  saved into two stores (the pattr list, and an unnamed `dict @parameter_enable 1` key "state"); a valid state up to
+  10 s late still wins; a new device's first save waits until 4.5 s; stores that disagree are re-synced.
+  **Live test 3 pending**: the trace lines tell which store works; then remove the other and the trace.
 - Docs: `DESIGN.md` (full design), `BUILD_PLAN.md`, `RESEARCH.md`, `REVIEW.md` (why the design changed),
   `design/ui-reference/` (PondSynth, Wanderer: the UI style the user likes).
 
@@ -83,7 +88,8 @@ name in the pattr (15a: lost on reload), a fixed-name or `---` dict for the stat
   (likely broken in Live the same way): never copy those parts. Not fixed there (other repo).
 
 ## Next step
-Live test 2 (15b): save → close → reopen must say `state restored, id ...` with the same ids; recheck that both devices
-keep their own ids after reopening. Then Phase 2
+Live test 3 (15c): two devices, wait ~5 s (the `[save]` lines), save → close → reopen; read the `[load]` lines. Keep the
+store that answers with "a Lifegiver state", remove the other, turn the trace off. If neither works: the lines show
+whether the stores never kept the list or answer in another form. Then Phase 2
 (offline test bench and yardsticks): ask the user for ~10 short dry stems (vocal, synth lead, pad, bass, kick, snare,
 guitar, pluck, noisy FX, something stereo; ideally a backing vocal).
