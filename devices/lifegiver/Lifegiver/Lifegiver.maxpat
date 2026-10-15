@@ -204,7 +204,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-15a"
+					"text": "patch 2026-10-15b"
 				}
 			},
 			{
@@ -262,12 +262,30 @@
 				"box": {
 					"id": "obj-10",
 					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						600.0,
+						330.0,
+						100.0,
+						22.0
+					],
+					"outlettype": [
+						""
+					],
+					"text": "prepend statelist"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-11",
+					"maxclass": "newobj",
 					"numinlets": 2,
 					"numoutlets": 3,
 					"patching_rect": [
 						200.0,
 						400.0,
-						160.0,
+						150.0,
 						22.0
 					],
 					"outlettype": [
@@ -275,12 +293,12 @@
 						"",
 						""
 					],
-					"text": "route getstate dictionary"
+					"text": "route getstate statelist"
 				}
 			},
 			{
 				"box": {
-					"id": "obj-11",
+					"id": "obj-12",
 					"maxclass": "newobj",
 					"numinlets": 1,
 					"numoutlets": 1,
@@ -294,24 +312,6 @@
 						"bang"
 					],
 					"text": "t b"
-				}
-			},
-			{
-				"box": {
-					"id": "obj-12",
-					"maxclass": "newobj",
-					"numinlets": 1,
-					"numoutlets": 1,
-					"patching_rect": [
-						260.0,
-						460.0,
-						110.0,
-						22.0
-					],
-					"outlettype": [
-						""
-					],
-					"text": "prepend dictionary"
 				}
 			},
 			{
@@ -505,7 +505,7 @@
 						60.0,
 						18.0
 					],
-					"text": "build 2026-10-15a",
+					"text": "build 2026-10-15b",
 					"presentation": 1,
 					"presentation_rect": [
 						10.0,
@@ -640,6 +640,18 @@
 						0
 					],
 					"destination": [
+						"obj-10",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-10",
+						0
+					],
+					"destination": [
 						"obj-2",
 						0
 					]
@@ -652,7 +664,7 @@
 						2
 					],
 					"destination": [
-						"obj-10",
+						"obj-11",
 						0
 					]
 				}
@@ -660,11 +672,11 @@
 			{
 				"patchline": {
 					"source": [
-						"obj-10",
+						"obj-11",
 						0
 					],
 					"destination": [
-						"obj-11",
+						"obj-12",
 						0
 					]
 				}
@@ -672,7 +684,7 @@
 			{
 				"patchline": {
 					"source": [
-						"obj-11",
+						"obj-12",
 						0
 					],
 					"destination": [
@@ -684,20 +696,8 @@
 			{
 				"patchline": {
 					"source": [
-						"obj-10",
+						"obj-11",
 						1
-					],
-					"destination": [
-						"obj-12",
-						0
-					]
-				}
-			},
-			{
-				"patchline": {
-					"source": [
-						"obj-12",
-						0
 					],
 					"destination": [
 						"obj-9",

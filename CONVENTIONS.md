@@ -49,6 +49,12 @@ Stable rules for every device in this repo. Device-specific state lives in `devi
 - Don't call user functions with side effects (e.g. an RNG) inside `if` blocks.
 - Brain → engine requests: the brain counts a request number up; the engine acts once when the number changes. The engine never writes a slot the brain writes.
 
+## Saving in the Live set
+
+- Store the data itself in a hidden blob parameter (`[pattr state]`, type 3, invisible), as a list of numbers. Never a dict name: a pattr given `dictionary <name>` saves only the name, `---` names change on reload, and the old name can point at another device's dict (Lifegiver 15a lost its state this way; wanderer-synth uses the same pattern and is affected).
+- No new symbols per save (Max never frees symbols): encode text as character codes.
+- On load, ask for the stored value more than once (Live can restore it late) and save nothing until it is settled.
+
 ## Max JS rules
 
 - Dicts turn 1-element arrays into scalars; no nested arrays, no `null` (use a converter like `toArr`).

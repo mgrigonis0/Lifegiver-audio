@@ -12,25 +12,27 @@ console shows what it does and the measured result. An assistant, not an autopil
 - **Phase 0 done:** mockup v2 approved by the user ("good for a first go"): device strip at real 169 px (order Listen →
   Tone · Dynamics → Stage → Moves → Out, ~1200 px wide, all in the strip) + Moves pop-out window.
   https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user; v1 kept on it as history).
-- **Phase 1 built, build 2026-10-15a**: stereo pass-through with Amount (Live parameter), state save/restore (device
-  id), version printed by engine and patch, offline tests (all pass, 0 warnings), CI workflow → release
-  `lifegiver-latest`. Wrapper type-checked against the pinned max-sdk-base on Linux; first Mac build happens in CI.
-- **Not verified in Live yet**: loading, the pattr save/reopen, two instances (INSTALL.md "First build: what to check").
+- **Phase 1, build 2026-10-15b**: stereo pass-through with Amount (Live parameter), saved state (device id), version
+  printed by engine and patch, offline tests (all pass, 0 warnings), CI → release `lifegiver-latest`.
+- **Live test 1 (15a)**: loads, both version lines, Amount click-free, two devices get their own ids: all OK.
+  Save → reopen FAILED (both came back as new devices): the pattr had saved only a dict *name*. 15b stores the state
+  itself as a number list in the hidden parameter (`state.h`), asks 3× at load. **15b save → reopen not yet verified.**
 - Docs: `DESIGN.md` (full design), `BUILD_PLAN.md`, `RESEARCH.md`, `REVIEW.md` (why the design changed),
   `design/ui-reference/` (PondSynth, Wanderer: the UI style the user likes).
 
 ## Structure
-- `source/engine/` (header-only C++17, no Max deps): `version.h` (the one version string), `ring.h` (SPSC ring),
-  `smooth.h` (two-pole smoother), `processor.h` (audio thread: Amount blend + make-up stage), `controller.h` (main
-  thread: messages, saved state, Host interface).
-- `source/projects/lifegiver_tilde/lifegiver_tilde.cpp`: Max wrapper (2 signal inlets, outlets L/R/info, pattr dict
-  state, 15 ms tick). Works on Max's 64-bit buffers directly: no work buffers, nothing allocated in perform.
+- `source/engine/` (header-only C++17, no Max deps): `version.h` (the one version string), `state.h` (StateDoc +
+  number-list codec), `ring.h` (SPSC ring), `smooth.h` (two-pole smoother), `processor.h` (audio thread: Amount blend
+  + make-up stage), `controller.h` (main thread: messages, load/save logic, Host interface).
+- `source/projects/lifegiver_tilde/lifegiver_tilde.cpp`: thin Max wrapper (2 signal inlets, outlets L/R/info,
+  getstate/statelist to the patch, 15 ms tick). Works on Max's 64-bit buffers directly: nothing allocated in perform.
 - `tools/build_device.py` → `Lifegiver/Lifegiver.amxd/.maxpat` (never hand-edit; type `aaaa` = audio effect; reads
   `version.h`; checks wiring, layout, `---` names, unique parameter names). `tools/tests/` (harness + engine_test).
 - `INSTALL.md`; CI `.github/workflows/lifegiver.yml` (tests + generator on Linux → universal mac build, lipo check →
   zip → release).
 - Flow: plugin~ → lifegiver~ → plugout~; Amount → `prepend amount`; live.thisdevice → init / version print / controls
-  re-output; lifegiver~ "getstate"/"dictionary" ↔ [pattr state] (hidden blob parameter).
+  re-output; lifegiver~ "getstate" → pattr bang → `prepend statelist` → lifegiver~; "statelist <numbers>" → [route] →
+  [pattr state] (hidden blob parameter, stored in the set).
 - Planned chain (fixed order): Clean → EQ/tilt → dynamic EQ → saturation pre → dynamics → saturation post →
   pan/width → short ambience → make-up. Audio = chain + take capture; main = control, state, fast path;
   worker = analysis + closed-loop solver.
@@ -39,7 +41,7 @@ console shows what it does and the measured result. An assistant, not an autopil
 | Name | Range | Purpose |
 |---|---|---|
 | Amount | 0–100 % (init 100) | Blend: 0 % = the input bit for bit; 100 % = full plan (now: unity) |
-| State | hidden blob | The engine's saved state (format, device id, saving build) |
+| State | hidden blob | The engine's saved state as a number list (format, device id, saving build) |
 
 ## Decisions (and why)
 - Assistant, not autopilot; the role is the user's choice, never guessed, never changed by dragging.
@@ -60,6 +62,9 @@ console shows what it does and the measured result. An assistant, not an autopil
   automation retargets mid-glide, which a smoothstep ramp does not.
 - Amount is a Live parameter, so Live saves it; the engine state holds only what Live can't (and skips identical
   saves: no extra undo steps).
+- Saved state = a number list inside the hidden parameter (magic + codec + entries, text as char codes): follows the
+  device, no shared names, no symbol per save; malformed lists are refused whole. Load logic lives in the controller
+  (asks at 0/300/800 ms, new device at 1.5 s, nothing saved before) so it is tested offline.
 - C++ engine like wanderer-synth (offline-testable, no silent gen~ failures); the brain lives in C++.
 - Earlier decisions still in force: input only, analysis only on takes; ERB-spaced analysis; soft antialiased low-order
   saturation; reference compressor design with time constants from the lowest F0.
@@ -67,14 +72,18 @@ console shows what it does and the measured result. An assistant, not an autopil
 ## Rejected approaches
 Full list with reasons: DESIGN.md §16. Most likely to be re-proposed: sidechain listening, Motion, "like this" reference,
 taste learning, stage turning the knobs, role change by drag zones, order as a choice, output limiter, "input changed"
-light, audio-crossfade blending, triangle blend pad, gen~, sending knob values through the command ring.
+light, audio-crossfade blending, triangle blend pad, gen~, sending knob values through the command ring, saving a dict
+name in the pattr (15a: lost on reload), a fixed-name or `---` dict for the state.
 
 ## Known issues
-- Nothing known in the code. Not yet loaded in Live (see Current state).
-- Wanderer's wrapper allocates on the audio thread (resize in perform): never copy that part.
+- 15b save → reopen not yet verified in Live. Open: does Live keep the list at full precision (the codec's own numbers
+  survive 32-bit rounding; later plan values may need checking).
+- Sets saved with 15a hold a dict name: 15b treats them as new devices (tested) and saves properly from then on.
+- Wanderer's wrapper allocates on the audio thread (resize in perform), and its saving uses the 15a dict-name pattern
+  (likely broken in Live the same way): never copy those parts. Not fixed there (other repo).
 
 ## Next step
-Live test 1 (INSTALL.md "First build: what to check"): loads, passes audio, both version lines show, Amount never
-clicks, two instances get different ids, save → close → reopen shows the same id. Fix what Live shows. Then Phase 2
+Live test 2 (15b): save → close → reopen must say `state restored, id ...` with the same ids; recheck that both devices
+keep their own ids after reopening. Then Phase 2
 (offline test bench and yardsticks): ask the user for ~10 short dry stems (vocal, synth lead, pad, bass, kick, snare,
 guitar, pluck, noisy FX, something stereo; ideally a backing vocal).

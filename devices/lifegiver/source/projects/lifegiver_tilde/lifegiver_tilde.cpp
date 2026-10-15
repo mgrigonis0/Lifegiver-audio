@@ -1,14 +1,14 @@
 // lifegiver~ — Max wrapper around the Lifegiver engine (one object per device).
 //
-// Argument: the device prefix. The patch writes "lifegiver~ ---lfg"; Live turns "---" into a per-device number, so
-//   every name the object makes (its state dict) is unique per device and two Lifegivers never share anything.
-// Inlets:  0 = left audio + every message, 1 = right audio. Messages (see Controller::message), plus
-//   init                     the device finished loading (live.thisdevice): pull the saved state
-//   dictionary <name>        the saved state, from the pattr
-// Outlets: 0 left audio, 1 right audio, 2 info for the patch: getstate, dictionary <name> (to the pattr)
+// Argument: the device prefix. The patch writes "lifegiver~ ---lfg"; Live turns "---" into a per-device number. Only
+//   used in the Max window line; every saved thing lives in the device's own hidden parameter (state.h).
+// Inlets:  0 = left audio + every message, 1 = right audio. Messages: see Controller::message, plus
+//   init                     the device finished loading (live.thisdevice)
+// Outlets: 0 left audio, 1 right audio, 2 info for the patch:
+//   getstate                 ask [pattr state] for the saved list (it answers through [prepend statelist])
+//   statelist <numbers>      store this list in [pattr state]
 #include "ext.h"
 #include "ext_obex.h"
-#include "ext_dictobj.h"
 #include "z_dsp.h"
 
 #include "../../engine/controller.h"
@@ -26,8 +26,9 @@ class Glue : public Host {
 public:
     t_lifegiver* x;
     explicit Glue(t_lifegiver* o) : x(o) {}
-    void saveState() override;
-    void log(const std::string& t) override;
+    void requestState() override;
+    void storeState(const std::vector<double>& v) override;
+    void log(const std::string& t) override { post("%s", t.c_str()); }
 };
 
 struct t_lifegiver {
@@ -39,60 +40,32 @@ struct t_lifegiver {
     void* infoOut;
     void* tickClock;
     t_symbol* prefix;
-    t_dictionary* stateDict;
-    t_symbol* stateName;
-    bool initDone, gotState, saving;
-    double initAt;
-    uint64_t lastHash;
 };
 
 static t_class* s_class = nullptr;
 
 static double now_ms() { return systimer_gettime(); }
 
-// ---------------------------------------------------------------------------------------------------
-void Glue::saveState() {
-    if (!x->stateDict) return;
-    StateDoc d;
-    x->ctl->writeState(d);
-    // nothing changed since the last save: no new step in Live's undo history
-    uint64_t h = 1469598103934665603ull;
-    auto mix = [&h](const void* p, size_t n) { const unsigned char* c = (const unsigned char*)p; for (size_t i = 0; i < n; i++) { h ^= c[i]; h *= 1099511628211ull; } };
-    for (auto& kv : d.num) { mix(kv.first.data(), kv.first.size()); mix(kv.second.data(), kv.second.size() * sizeof(double)); }
-    for (auto& kv : d.str) { mix(kv.first.data(), kv.first.size()); mix(kv.second.data(), kv.second.size()); }
-    if (h == x->lastHash) return;
-    x->lastHash = h;
-    dictionary_clear(x->stateDict);
-    std::vector<t_atom> at;
-    for (auto& kv : d.num) {
-        at.resize(kv.second.size());
-        for (size_t i = 0; i < kv.second.size(); i++) atom_setfloat(&at[i], kv.second[i]);
-        if (at.empty()) { t_atom z; atom_setfloat(&z, 0); dictionary_appendatoms(x->stateDict, gensym(kv.first.c_str()), 0, &z); }
-        else dictionary_appendatoms(x->stateDict, gensym(kv.first.c_str()), (long)at.size(), at.data());
-    }
-    for (auto& kv : d.str) dictionary_appendsym(x->stateDict, gensym(kv.first.c_str()), gensym(kv.second.c_str()));
-    x->saving = true;
-    t_atom a; atom_setsym(&a, x->stateName);
-    outlet_anything(x->infoOut, gensym("dictionary"), 1, &a);
-    x->saving = false;
-}
+void Glue::requestState() { outlet_anything(x->infoOut, gensym("getstate"), 0, nullptr); }
 
-void Glue::log(const std::string& t) { object_post((t_object*)x, "%s", t.c_str()); }
+void Glue::storeState(const std::vector<double>& v) {
+    std::vector<t_atom> at(v.size());
+    for (size_t i = 0; i < v.size(); i++) atom_setfloat(&at[i], v[i]);
+    outlet_anything(x->infoOut, gensym("statelist"), (short)at.size(), at.data());
+}
 
 // ---------------------------------------------------------------------------------------------------
 static void lg_tick(t_lifegiver* x) {
-    const double ms = now_ms();
     {
         std::lock_guard<std::recursive_mutex> g(*x->mx);
-        // nothing came from the set within 1.5 s of loading: a new device
-        if (x->initDone && !x->gotState && ms >= x->initAt + 1500) { x->gotState = true; x->ctl->noState(); }
-        x->ctl->tick(ms);
+        x->ctl->tick(now_ms());
     }
     clock_fdelay(x->tickClock, 15.);
 }
 
 static void lg_anything(t_lifegiver* x, t_symbol* s, long argc, t_atom* argv) {
     std::vector<Controller::Atom> a;
+    a.reserve((size_t)argc);
     for (long i = 0; i < argc; i++) {
         Controller::Atom m;
         if (atom_gettype(argv + i) == A_SYM) { m.num = false; m.s = atom_getsym(argv + i)->s_name; }
@@ -104,46 +77,11 @@ static void lg_anything(t_lifegiver* x, t_symbol* s, long argc, t_atom* argv) {
 }
 
 static void lg_init(t_lifegiver* x) {
-    if (x->initDone) return;
-    x->initDone = true;
-    x->initAt = now_ms();
-    outlet_anything(x->infoOut, gensym("getstate"), 0, nullptr);   // the pattr answers with "dictionary <name>"
-}
-
-static void lg_dictionary(t_lifegiver* x, t_symbol* name) {
-    // our own dict echoing back, or a second answer: the state is read once per load
-    if (x->saving || name == x->stateName || x->gotState) return;
-    t_dictionary* d = dictobj_findregistered_retain(name);
-    if (!d) return;
-    StateDoc doc;
-    long n = 0;
-    t_symbol** keys = nullptr;
-    dictionary_getkeys(d, &n, &keys);
-    for (long i = 0; i < n; i++) {
-        t_symbol* k = keys[i];
-        if (dictionary_entryisstring(d, k)) {
-            t_symbol* v = nullptr;
-            dictionary_getsym(d, k, &v);
-            if (v) doc.str[k->s_name] = v->s_name;
-            continue;
-        }
-        long ac = 0;
-        t_atom* av = nullptr;
-        if (dictionary_getatoms(d, k, &ac, &av) == MAX_ERR_NONE) {
-            if (ac == 1 && atom_gettype(av) == A_SYM) { doc.str[k->s_name] = atom_getsym(av)->s_name; continue; }
-            std::vector<double> v;
-            for (long j = 0; j < ac; j++) v.push_back(atom_getfloat(av + j));
-            doc.num[k->s_name] = v;
-        }
-    }
-    if (keys) dictionary_freekeys(d, n, keys);
-    dictobj_release(d);
     std::lock_guard<std::recursive_mutex> g(*x->mx);
-    x->gotState = true;
-    x->ctl->readState(doc);
+    x->ctl->init(now_ms());
 }
 
-static void lg_int(t_lifegiver* x, long v) { (void)x; (void)v; }      // pattr sends a bare 0 when nothing was saved
+static void lg_int(t_lifegiver* x, long v) { (void)x; (void)v; }      // stray numbers: nothing to do
 static void lg_float(t_lifegiver* x, double v) { (void)x; (void)v; }
 
 // ---------------------------------------------------------------------------------------------------
@@ -186,13 +124,6 @@ static void* lg_new(t_symbol*, long argc, t_atom* argv) {
     x->pr->prepare(sys_getsr());
     x->glue = new Glue(x);
     x->ctl = new Controller(x->pr, x->glue);
-    x->initDone = false; x->gotState = false; x->saving = false;
-    x->initAt = 0; x->lastHash = 0;
-    char dn[256];
-    std::snprintf(dn, sizeof dn, "%slgstate", x->prefix->s_name);
-    x->stateName = gensym(dn);
-    x->stateDict = dictionary_new();
-    x->stateDict = dictobj_register(x->stateDict, &x->stateName);
     x->tickClock = clock_new(x, (method)lg_tick);
     clock_fdelay(x->tickClock, 50.);
     post("lifegiver: engine %s ready, device %s", VERSION, x->prefix->s_name);
@@ -203,7 +134,6 @@ static void lg_free(t_lifegiver* x) {
     dsp_free((t_pxobject*)x);
     clock_unset(x->tickClock);
     object_free(x->tickClock);
-    if (x->stateDict) dictobj_unregister(x->stateDict);
     delete x->ctl;
     delete x->glue;
     delete x->pr;
@@ -215,7 +145,6 @@ void ext_main(void*) {
     class_addmethod(c, (method)lg_dsp64, "dsp64", A_CANT, 0);
     class_addmethod(c, (method)lg_assist, "assist", A_CANT, 0);
     class_addmethod(c, (method)lg_init, "init", 0);
-    class_addmethod(c, (method)lg_dictionary, "dictionary", A_SYM, 0);
     class_addmethod(c, (method)lg_int, "int", A_LONG, 0);
     class_addmethod(c, (method)lg_float, "float", A_FLOAT, 0);
     class_addmethod(c, (method)lg_anything, "anything", A_GIMME, 0);

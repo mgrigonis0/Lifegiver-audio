@@ -151,52 +151,104 @@ static void testRealtimeSafety() {
     fails += expect(bitEqual(o2.l.back(), 0.5), "after 1000 moves with audio stopped, the last value (0 %) is the one used");
 }
 
+static void testCodec() {
+    std::printf("state codec\n");
+    StateDoc d;
+    d.num["v"] = {1};
+    d.num["id"] = {4821};
+    d.num["plan"] = {0.125, -3.5, 1e-9, 12345.678};
+    d.num["empty"] = {};
+    d.str["saved_by"] = "2026-10-15b";
+    d.str["note"] = "";
+    std::vector<double> v = encodeState(d);
+    StateDoc back;
+    const bool ok = decodeState(v, back);
+    fails += expect(ok && back.num == d.num && back.str == d.str, "a state survives encode → decode exactly");
+    // Live may keep the list as 32-bit floats: the codec's own numbers must survive that
+    std::vector<double> f32 = v;
+    for (double& x : f32) x = (double)(float)x;
+    StateDoc b32;
+    fails += expect(decodeState(f32, b32) && b32.get1("id", 0) == 4821 && b32.gets("saved_by") == "2026-10-15b",
+                    "it still decodes after 32-bit rounding (ids and text intact)");
+    // anything else is refused, never half-read
+    int refused = 0, cases = 0;
+    auto bad = [&](std::vector<double> x) { StateDoc t; cases++; if (!decodeState(x, t) && t.empty()) refused++; };
+    bad({});
+    bad({0});
+    bad({1, 2, 3, 4});
+    std::vector<double> w = v; w[0] = 1234; bad(w);                     // wrong magic
+    w = v; w[1] = 9; bad(w);                                              // unknown codec
+    w = v; w.pop_back(); bad(w);                                          // cut short
+    w = v; w.push_back(7); bad(w);                                        // trailing junk
+    w = v; w[2] = 2.5; bad(w);                                            // count not whole
+    w = v; w[2] = 1e9; bad(w);                                            // absurd count
+    w = v; w[4] = 300; bad(w);                                            // not a character
+    w = v; w[2] = NAN; bad(w);                                            // not a number
+    std::printf("    %d of %d malformed lists refused\n", refused, cases);
+    fails += expect(refused == cases, "malformed lists are refused whole");
+}
+
 static void testState() {
-    std::printf("saved state\n");
-    // a new device: no save before the set had its chance; then one save with an id
+    std::printf("saved state (as the Live set holds it)\n");
+    // a new device: its pattr holds a single 0. Nothing is saved while the set might still answer.
     Rig a;
-    a.idle(1.0);
-    fails += expect(a.host.saves == 0, "nothing is saved before the set's state (or its absence) is known");
-    a.ctl->noState();
+    a.init();
+    a.idle(1.4);
+    fails += expect(a.host.saves == 0 && !a.ctl->isRestored(), "nothing is saved in the first 1.4 s");
     a.idle(1.0);
     const uint32_t id = a.ctl->id();
-    std::printf("    new device id %u, saves %d\n", id, a.host.saves);
-    fails += expect(a.host.saves == 1 && id >= 1000 && id <= 9999, "a new device gets an id and saves it once");
-    fails += expect(a.host.saved.gets("saved_by") == VERSION && (int)a.host.saved.get1("v", 0) == STATE_FORMAT, "the save records format and engine build");
-    // Amount is a Live parameter: Live saves it, the engine does not
+    StateDoc sd;
+    const bool stored = a.host.storedDoc(sd);
+    std::printf("    new device id %u, asked %d times, saves %d\n", id, a.host.requests, a.host.saves);
+    fails += expect(a.host.requests == 3, "it asks the set three times (0, 300, 800 ms)");
+    fails += expect(a.host.saves == 1 && id >= 1000 && id <= 9999 && a.host.logged("new device, id"), "then: a new device with an id, saved once");
+    fails += expect(stored && sd.get1("id", 0) == id && sd.gets("saved_by") == VERSION, "the set now holds the list with that id and this build");
     a.msg("amount", {50});
     a.idle(1.0);
-    fails += expect(a.host.saves == 1, "moving Amount does not write the engine's state");
+    fails += expect(a.host.saves == 1, "moving Amount does not write the engine's state (Live saves it)");
 
-    // reopen: the same id comes back, no re-save when nothing changed
+    // reopen: the same list comes back
     Rig b;
-    b.ctl->readState(a.host.saved);
-    b.idle(1.0);
-    bool logged = false;
-    for (auto& l : b.host.logs) if (l.find("state restored, id " + std::to_string(id)) != std::string::npos) logged = true;
-    fails += expect(b.ctl->id() == id && logged, "reopening restores the same id and says so in the Max window");
-    fails += expect(b.host.saves == 0, "reopening the same build does not re-save (no extra undo step)");
+    b.host.stored = a.host.stored;
+    b.init();
+    b.idle(2.0);
+    fails += expect(b.ctl->id() == id && b.host.logged("state restored, id " + std::to_string(id)), "reopening restores the same id and says so");
+    fails += expect(b.host.saves == 0, "reopening with the same build saves nothing (no extra undo step)");
 
-    // a set saved by an older build: restored, then re-saved in this build's format
-    StateDoc old = a.host.saved;
-    old.str["saved_by"] = "2026-01-01a";
+    // Live restores the hidden parameter late (after 600 ms): the second ask still finds it
     Rig c;
-    c.ctl->readState(old);
-    c.idle(1.0);
-    fails += expect(c.ctl->id() == id && c.host.saves == 1 && c.host.saved.gets("saved_by") == VERSION, "an older build's state is kept and re-saved");
+    c.host.stored = a.host.stored;
+    c.host.readyAt = 600;
+    c.init();
+    c.idle(2.0);
+    fails += expect(c.ctl->id() == id && !c.host.logged("new device"), "a late restore (600 ms) is still found");
 
-    // junk in the dict: treated as a new device, never a crash
-    StateDoc junk;
-    junk.num["v"] = {};
-    junk.str["id"] = "x";
+    // a set saved by 15a holds a dict name ("dictionary 002lgstate"): treated as a new device, no crash
     Rig d;
-    d.ctl->readState(junk);
-    d.idle(1.0);
-    fails += expect(d.ctl->id() >= 1000 && d.host.saves == 1, "unreadable state = a new device");
+    d.host.stored.clear();
+    Controller::Atom w1; w1.num = false; w1.s = "dictionary";
+    Controller::Atom w2; w2.num = false; w2.s = "002lgstate";
+    d.host.stored = {w1, w2};
+    d.init();
+    d.idle(2.5);
+    StateDoc dd;
+    fails += expect(d.host.logged("new device") && d.host.storedDoc(dd), "a 15a set: new device, and from now on it saves properly");
 
-    // two devices never share an id by accident (ids are random per new device)
+    // a set saved by an older build: restored and re-saved in this build's format
+    StateDoc old = sd;
+    old.str["saved_by"] = "2026-01-01a";
+    Rig e;
+    e.host.stored.clear();
+    for (double x : encodeState(old)) { Controller::Atom t; t.d = x; e.host.stored.push_back(t); }
+    e.init();
+    e.idle(2.0);
+    StateDoc ed;
+    fails += expect(e.ctl->id() == id && e.host.saves == 1 && e.host.storedDoc(ed) && ed.gets("saved_by") == VERSION,
+                    "an older build's state is kept and re-saved");
+
+    // two devices: each its own list, its own id (no shared names involved at all)
     int same = 0;
-    for (int i = 0; i < 20; i++) { Rig x, y; x.ctl->noState(); y.ctl->noState(); if (x.ctl->id() == y.ctl->id()) same++; }
+    for (int i = 0; i < 20; i++) { Rig x, y; x.init(); y.init(); x.idle(2.1); y.idle(2.1); if (x.ctl->id() == y.ctl->id()) same++; }
     fails += expect(same <= 1, "two new devices get different ids");
 }
 
@@ -260,6 +312,7 @@ int main() {
     testFade();
     testAutomation();
     testRealtimeSafety();
+    testCodec();
     testState();
     testMessages();
     testCpu();

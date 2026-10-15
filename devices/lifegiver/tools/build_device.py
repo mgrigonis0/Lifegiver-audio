@@ -7,8 +7,9 @@ effect). Same generator design as wanderer-synth's tools/build_device.py.
 Signal:   plugin~ -> lifegiver~ (left: inlet 0, right: inlet 1) -> plugout~
 Controls: every Live control -> [prepend <name>] -> lifegiver~
 Load:     live.thisdevice -> "init" (lifegiver~ pulls its saved state), controls re-output, version printed
-Saving:   [pattr state] is a hidden Live parameter (blob) holding the engine's state dict inside the Live set:
-          lifegiver~ "getstate" -> pattr bang -> "dictionary <name>" -> lifegiver~; saves go the other way
+Saving:   [pattr state] is a hidden Live parameter (blob) holding the engine's state as a list of numbers:
+          lifegiver~ "getstate" -> pattr bang -> [prepend statelist] -> lifegiver~;
+          lifegiver~ "statelist <numbers>" -> [route] -> pattr (stored in the Live set)
 Latency:  the patcher's "latency" (Defined Latency, samples) is fixed; the engine is zero-latency (DESIGN §13)
 """
 import json
@@ -106,16 +107,17 @@ vmsg = msg(f"patch {VERSION}", (140, 80, 110, 22))
 vprint = obj("print lifegiver", (140, 110, 90, 22), ins=1, outs=0)
 wire(tinit, 1, vmsg, 0); wire(vmsg, 0, vprint, 0)
 
-# saving: a hidden blob parameter holding the engine's dict
+# saving: a hidden blob parameter holding the engine's state as a list of numbers (source/engine/state.h).
+# The list itself is stored in the set (not a dict name: build 15a saved only a name, which changes on reload).
 pattr = obj("pattr state", (600, 300, 82, 22), ins=1, outs=3, parameter_enable=1,
             saved_attribute_attributes=valueof("State", "State", 3, 0, 1, 0, invisible=1))
-wire(pattr, 0, eng, 0)
-route = obj("route getstate dictionary", (200, 400, 160, 22), ins=2, outs=3)
+pstate = obj("prepend statelist", (600, 330, 100, 22))
+wire(pattr, 0, pstate, 0); wire(pstate, 0, eng, 0)
+route = obj("route getstate statelist", (200, 400, 150, 22), ins=2, outs=3)
 wire(eng, 2, route, 0)
 tget = obj("t b", (200, 430, 30, 22), ins=1, outs=1, outtypes=["bang"])
 wire(route, 0, tget, 0); wire(tget, 0, pattr, 0)
-pdict = obj("prepend dictionary", (260, 460, 110, 22))
-wire(route, 1, pdict, 0); wire(pdict, 0, pattr, 0)
+wire(route, 1, pattr, 0)
 
 # --------------------------------------------------------------------------------------------- layout (1x)
 DEV_H = 169

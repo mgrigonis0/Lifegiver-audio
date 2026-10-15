@@ -33,8 +33,8 @@ Drag `Lifegiver.amxd` from that folder onto an audio track that plays something.
 The Max window (open the device editor, then Cmd+M) shows two lines when everything loaded:
 
 ```
-lifegiver: engine 2026-10-15a ready, device ...
-lifegiver: patch 2026-10-15a
+lifegiver: engine 2026-10-15b ready, device ...
+lifegiver: patch 2026-10-15b
 ```
 
 and, a moment later, `lifegiver: new device, id ....` (or `state restored, id ....` in a saved set).
