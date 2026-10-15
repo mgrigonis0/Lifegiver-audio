@@ -1,0 +1,4 @@
+.DS_Store
+*.amxd.bak
+__pycache__/
+node_modules/
