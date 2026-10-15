@@ -1,0 +1,77 @@
+name: lifegiver
+
+on:
+  push:
+    branches: [main]
+    paths: ["devices/lifegiver/**", ".github/workflows/lifegiver.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  engine-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline engine tests
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -o engine_test devices/lifegiver/tools/tests/engine_test.cpp -lpthread
+          ./engine_test
+      - name: Generate the device (checks wiring, layout, parameter names)
+        run: python3 devices/lifegiver/tools/build_device.py
+
+  mac:
+    runs-on: macos-14
+    needs: engine-test
+    defaults:
+      run:
+        working-directory: devices/lifegiver
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get max-sdk-base
+        run: |
+          git clone https://github.com/Cycling74/max-sdk-base max-sdk-base
+          git -C max-sdk-base checkout c03a292
+
+      - name: "Configure (universal: Intel + Apple Silicon)"
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Check the external
+        run: |
+          ls -la externals
+          file "externals/lifegiver~.mxo/Contents/MacOS/lifegiver~"
+          lipo -archs "externals/lifegiver~.mxo/Contents/MacOS/lifegiver~" | grep -q x86_64
+          lipo -archs "externals/lifegiver~.mxo/Contents/MacOS/lifegiver~" | grep -q arm64
+
+      - name: Package
+        run: |
+          python3 tools/build_device.py
+          mkdir -p dist/Lifegiver
+          cp -R "externals/lifegiver~.mxo" dist/Lifegiver/
+          cp Lifegiver/Lifegiver.amxd dist/Lifegiver/
+          cp INSTALL.md dist/Lifegiver/
+          cd dist && ditto -c -k --sequesterRsrc --keepParent Lifegiver ../lifegiver-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lifegiver-mac
+          path: devices/lifegiver/lifegiver-mac.zip
+
+      - name: Publish as the "lifegiver-latest" download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lifegiver-latest
+          name: Lifegiver — latest build
+          prerelease: true
+          files: devices/lifegiver/lifegiver-mac.zip
+          body: |
+            Automatic build from ${{ github.sha }}.
+            Download lifegiver-mac.zip, unzip it, and follow INSTALL.md inside.

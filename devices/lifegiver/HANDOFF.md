@@ -9,34 +9,37 @@ intensity), adds their own **relative knob** turns on top, and mixes **strategie
 console shows what it does and the measured result. An assistant, not an autopilot.
 
 ## Current state
-- Design phase **complete and reviewed**; nothing built (no engine, wrapper, patch or CI yet).
-- Full design: `DESIGN.md`. Build order: `BUILD_PLAN.md`. Theory + sources: `RESEARCH.md`. Why the design changed in
-  the review: `REVIEW.md` (resolved).
-- Mockup v1 is outdated (no pan, old absolute dials, no Moves console):
-  https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user).
-- UI style reference the user likes: `design/ui-reference/` (PondSynth, Wanderer).
+- **Phase 0 done:** mockup v2 approved by the user ("good for a first go"): device strip at real 169 px (order Listen →
+  Tone · Dynamics → Stage → Moves → Out, ~1200 px wide, all in the strip) + Moves pop-out window.
+  https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user; v1 kept on it as history).
+- **Phase 1 built, build 2026-10-15a**: stereo pass-through with Amount (Live parameter), state save/restore (device
+  id), version printed by engine and patch, offline tests (all pass, 0 warnings), CI workflow → release
+  `lifegiver-latest`. Wrapper type-checked against the pinned max-sdk-base on Linux; first Mac build happens in CI.
+- **Not verified in Live yet**: loading, the pattr save/reopen, two instances (INSTALL.md "First build: what to check").
+- Docs: `DESIGN.md` (full design), `BUILD_PLAN.md`, `RESEARCH.md`, `REVIEW.md` (why the design changed),
+  `design/ui-reference/` (PondSynth, Wanderer: the UI style the user likes).
 
-## Structure (planned, see BUILD_PLAN.md Phase 1)
-- `source/engine/`: header-only C++17 engine (modules, analysis, solver), no Max deps.
-- `source/projects/lifegiver_tilde/`: thin Max wrapper, external `lifegiver~` (stereo in, dry path inside).
-- `tools/build_device.py` (generates `.amxd`, sets Defined Latency), `tools/tests/`, `tools/render` (offline WAV renders).
-- CI `.github/workflows/lifegiver.yml` → release `lifegiver-latest` (`lifegiver-mac.zip`). Copy Wanderer's setup.
-- Flow (fixed order): Clean → EQ/tilt → dynamic EQ → saturation pre → dynamics → saturation post/HF softening →
-  pan/width → short ambience → make-up. Audio thread = chain + take capture; main = control, state, fast path;
+## Structure
+- `source/engine/` (header-only C++17, no Max deps): `version.h` (the one version string), `ring.h` (SPSC ring),
+  `smooth.h` (two-pole smoother), `processor.h` (audio thread: Amount blend + make-up stage), `controller.h` (main
+  thread: messages, saved state, Host interface).
+- `source/projects/lifegiver_tilde/lifegiver_tilde.cpp`: Max wrapper (2 signal inlets, outlets L/R/info, pattr dict
+  state, 15 ms tick). Works on Max's 64-bit buffers directly: no work buffers, nothing allocated in perform.
+- `tools/build_device.py` → `Lifegiver/Lifegiver.amxd/.maxpat` (never hand-edit; type `aaaa` = audio effect; reads
+  `version.h`; checks wiring, layout, `---` names, unique parameter names). `tools/tests/` (harness + engine_test).
+- `INSTALL.md`; CI `.github/workflows/lifegiver.yml` (tests + generator on Linux → universal mac build, lipo check →
+  zip → release).
+- Flow: plugin~ → lifegiver~ → plugout~; Amount → `prepend amount`; live.thisdevice → init / version print / controls
+  re-output; lifegiver~ "getstate"/"dictionary" ↔ [pattr state] (hidden blob parameter).
+- Planned chain (fixed order): Clean → EQ/tilt → dynamic EQ → saturation pre → dynamics → saturation post →
+  pan/width → short ambience → make-up. Audio = chain + take capture; main = control, state, fast path;
   worker = analysis + closed-loop solver.
 
-## Controls (detail in DESIGN.md)
-| Control | Purpose |
-|---|---|
-| Arm / takes ×4 | ~4 s of non-silent input per take, each removable; sets every knob's zero |
-| Weight, Warm, Bite, Air, Texture, Punch, Tail, Steady | 0 = as read; turn = the user's extra on top of the stage; stage arc on the ring |
-| Stage shape | Drag: pan (true stereo) / distance (back = darker, softer, up to −3 dB); stretch: width; edge: smooth ↔ driven |
-| Range strip | Hard low/high limit of the spectrum the sound may own |
-| Role: Lead, Hook, Support, Rhythm, Bass, Bed, FX | Start position + priorities; changes only by button |
-| Identity ↔ Fit | Exaggerate what makes the sound itself ↔ fit the role |
-| A–E + strength each | Five strategies (Clean, Rich, Bold, Vintage, Tight), mixed at any strengths |
-| Moves console | Chosen actions, measured result, amount, on/off, method swap |
-| Amount, Compare, Clean | 0 % = bit-exact original; loudness-matched before/after; cleanup amount |
+## Parameters (Phase 1)
+| Name | Range | Purpose |
+|---|---|---|
+| Amount | 0–100 % (init 100) | Blend: 0 % = the input bit for bit; 100 % = full plan (now: unity) |
+| State | hidden blob | The engine's saved state (format, device id, saving build) |
 
 ## Decisions (and why)
 - Assistant, not autopilot; the role is the user's choice, never guessed, never changed by dragging.
@@ -47,9 +50,16 @@ console shows what it does and the measured result. An assistant, not an autopil
   safety (e.g. intermodulation before saturating).
 - Fast path (sensitivity table) for drags/automation; slow refine on the worker, debounced, smoothed hand-over.
 - Fixed module order (order as a choice can't be mixed); two saturation slots where order matters.
-- Zero latency: M4L latency is fixed in the patcher, so every plan must have the same latency.
+- Zero latency (patcher `latency` 0): M4L latency is fixed, so every plan must have the same latency.
 - No output limiter; level = static make-up + stage level (0 to −3 dB); the fader owns the rest.
 - Saved: reading, plan, overrides, brain version, sensitivity table (not takes); reload plays the saved plan exactly.
+- Engine on doubles, straight on Max's buffers: bit-exact dry path, no conversion buffers to allocate.
+- Amount/make-up reach the audio thread as atomics (a ring could drop the newest value while audio is stopped).
+- First values before audio starts apply at once (a set saved at 0 % never fades in processed sound on load).
+- Smoothing = two one-pole stages, 4 ms each (S-shaped, ≈ 13 ms 90→10 %, exact after ≈ 77 ms): stays smooth when
+  automation retargets mid-glide, which a smoothstep ramp does not.
+- Amount is a Live parameter, so Live saves it; the engine state holds only what Live can't (and skips identical
+  saves: no extra undo steps).
 - C++ engine like wanderer-synth (offline-testable, no silent gen~ failures); the brain lives in C++.
 - Earlier decisions still in force: input only, analysis only on takes; ERB-spaced analysis; soft antialiased low-order
   saturation; reference compressor design with time constants from the lowest F0.
@@ -57,13 +67,14 @@ console shows what it does and the measured result. An assistant, not an autopil
 ## Rejected approaches
 Full list with reasons: DESIGN.md §16. Most likely to be re-proposed: sidechain listening, Motion, "like this" reference,
 taste learning, stage turning the knobs, role change by drag zones, order as a choice, output limiter, "input changed"
-light, audio-crossfade blending, triangle blend pad, gen~.
+light, audio-crossfade blending, triangle blend pad, gen~, sending knob values through the command ring.
 
 ## Known issues
-- None (nothing built). Wanderer's wrapper allocates on the audio thread (resize in perform): don't copy that.
-- Open: whether the full UI fits 169 px or the Moves console pops out (mockup v2).
+- Nothing known in the code. Not yet loaded in Live (see Current state).
+- Wanderer's wrapper allocates on the audio thread (resize in perform): never copy that part.
 
 ## Next step
-Phase 0 of BUILD_PLAN.md: mockup v2 in the style of `design/ui-reference/`, with every control in the table above; settle
-the 169 px question; get the user's approval. Then Phase 1 (skeleton from wanderer-synth, incl. a save/reopen Live test).
-Ask the user for ~10 short dry test stems before Phase 2.
+Live test 1 (INSTALL.md "First build: what to check"): loads, passes audio, both version lines show, Amount never
+clicks, two instances get different ids, save → close → reopen shows the same id. Fix what Live shows. Then Phase 2
+(offline test bench and yardsticks): ask the user for ~10 short dry stems (vocal, synth lead, pad, bass, kick, snare,
+guitar, pluck, noisy FX, something stereo; ideally a backing vocal).

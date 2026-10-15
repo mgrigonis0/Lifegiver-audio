@@ -1,0 +1,6 @@
+build/
+externals/
+max-sdk-base/
+dist/
+*.zip
+.DS_Store

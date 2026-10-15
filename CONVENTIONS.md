@@ -33,8 +33,11 @@ Stable rules for every device in this repo. Device-specific state lives in `devi
 
 ## Threads (C++ engines)
 
-- The audio thread never allocates, locks or frees. The main thread talks to it through a command ring; it answers through a report ring; big data (tables, buffers, plans) is handed over by pointer and freed back on the main thread.
-- Every fade is S-shaped (smoothstep), at least 3 ms: no corner in the level, no click. The offline click test must pass.
+- The audio thread never allocates, locks or frees. The main thread talks to it through a command ring; it answers through a report ring; big data (tables, buffers, plans) is handed over by pointer and freed back on the main thread. An offline test counts allocations during `process()` (must be 0).
+- Continuous values (knobs, amounts) go to the audio thread as atomics, latest value wins, read once per block: a ring can fill while audio is stopped and drop the newest value. Rings are for events.
+- Values that arrive before audio starts (a set loading, audio restarting) apply at once; later changes glide.
+- Every fade is S-shaped (smoothstep, or two one-pole stages for continuous controls: S-shaped and smooth when retargeted mid-glide), at least 3 ms: no corner in the level, no click. The offline click test must pass.
+- The second-difference click measure is only valid on low tones (a clean sine above ~1 kHz at 44.1/48 kHz trips it by itself): test fades on low tones, and check the gain curve directly (no jump, no corner).
 
 ## gen~ rules (learned the hard way, if gen~ is ever used)
 
