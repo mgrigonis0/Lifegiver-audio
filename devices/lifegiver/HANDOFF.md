@@ -1,6 +1,6 @@
 # Lifegiver — Handoff
 
-_Last updated: 2026-10-15_
+_Last updated: 2026-10-16_
 
 ## What it does
 A Max for Live audio effect that listens to a sound (up to 4 short takes), reads what it is, and helps the user shape it
@@ -9,87 +9,69 @@ intensity), adds their own **relative knob** turns on top, and mixes **strategie
 console shows what it does and the measured result. An assistant, not an autopilot.
 
 ## Current state
-- **Phase 0 done:** mockup v2 approved by the user ("good for a first go"): device strip at real 169 px (order Listen →
-  Tone · Dynamics → Stage → Moves → Out, ~1200 px wide, all in the strip) + Moves pop-out window.
-  https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user; v1 kept on it as history).
-- **Phase 1, build 2026-10-15c**: stereo pass-through with Amount (Live parameter), saved state (device id), version
-  printed by engine and patch, offline tests (all pass, 0 warnings), CI → release `lifegiver-latest`.
-- **Live test 1 (15a)**: loads, both version lines, Amount click-free, two devices get their own ids: all OK.
-  Save → reopen FAILED: the pattr had saved only a dict *name*.
-- **Live test 2 (15b, state as a number list in the pattr)**: save → reopen FAILED again (both "new device"); cause
-  unknown (pattr never kept it? Live restores late? came back in another form?).
-- **15c = diagnosis + two routes**: every load answer and save is traced in the Max window (first 10 s); the state is
-  saved into two stores (the pattr list, and an unnamed `dict @parameter_enable 1` key "state"); a valid state up to
-  10 s late still wins; a new device's first save waits until 4.5 s; stores that disagree are re-synced.
-  **Live test 3 pending**: the trace lines tell which store works; then remove the other and the trace.
-- Docs: `DESIGN.md` (full design), `BUILD_PLAN.md`, `RESEARCH.md`, `REVIEW.md` (why the design changed),
-  `design/ui-reference/` (PondSynth, Wanderer: the UI style the user likes).
+- **Phase 0 done:** mockup v2 approved ("good for a first go"): device strip at real 169 px (Listen → Tone · Dynamics
+  → Stage → Moves → Out, ~1200 px wide, all in the strip) + Moves pop-out window.
+  https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user; v1 kept as history).
+- **Phase 1, build 2026-10-15c** (pushed, CI green, release `lifegiver-latest`): stereo pass-through, Amount (Live
+  parameter), version printed by engine and patch, saved state (device id), offline tests all pass, 0 warnings.
+- **Verified in Live:** loads, both version lines, Amount click-free, two devices get their own ids.
+- **Saving does NOT work yet** (Live tests 1–3: every reopen says "new device"). The 15c trace shows:
+  - during the session the hidden `[pattr state]` holds the 34-number list (it echoes it back after each save);
+  - after reopening, the pattr answers its **initial value `0`** (at 0, ~300, ~800 ms) and the unnamed
+    `dict @parameter_enable 1` answers **nothing**; no store ever outputs a restored value later.
+  - So Live does not restore the stored value at all; timing and the codec are ruled out.
+- Docs: `DESIGN.md`, `BUILD_PLAN.md`, `RESEARCH.md`, `REVIEW.md`, `design/ui-reference/` (UI style the user likes).
 
 ## Structure
 - `source/engine/` (header-only C++17, no Max deps): `version.h` (the one version string), `state.h` (StateDoc +
-  number-list codec), `ring.h` (SPSC ring), `smooth.h` (two-pole smoother), `processor.h` (audio thread: Amount blend
-  + make-up stage), `controller.h` (main thread: messages, load/save logic, Host interface).
-- `source/projects/lifegiver_tilde/lifegiver_tilde.cpp`: thin Max wrapper (2 signal inlets, outlets L/R/info,
-  getstate/statelist to the patch, 15 ms tick). Works on Max's 64-bit buffers directly: nothing allocated in perform.
-- `tools/build_device.py` → `Lifegiver/Lifegiver.amxd/.maxpat` (never hand-edit; type `aaaa` = audio effect; reads
-  `version.h`; checks wiring, layout, `---` names, unique parameter names). `tools/tests/` (harness + engine_test).
-- `INSTALL.md`; CI `.github/workflows/lifegiver.yml` (tests + generator on Linux → universal mac build, lipo check →
-  zip → release).
-- Flow: plugin~ → lifegiver~ → plugout~; Amount → `prepend amount`; live.thisdevice → init / version print / controls
-  re-output; lifegiver~ "getstate" → pattr bang → `prepend statelist` → lifegiver~; "statelist <numbers>" → [route] →
-  [pattr state] (hidden blob parameter, stored in the set).
-- Planned chain (fixed order): Clean → EQ/tilt → dynamic EQ → saturation pre → dynamics → saturation post →
-  pan/width → short ambience → make-up. Audio = chain + take capture; main = control, state, fast path;
-  worker = analysis + closed-loop solver.
+  number-list codec), `ring.h`, `smooth.h` (two-pole smoother), `processor.h` (audio thread: Amount blend + make-up
+  stage), `controller.h` (main thread: messages, load/save logic incl. two stores, late restore, re-sync, trace).
+- `source/projects/lifegiver_tilde/lifegiver_tilde.cpp`: thin wrapper (2 signal inlets, outlets L/R/info; `getstate`,
+  `statelist`, `dictionary <name>` reads key "state"; 15 ms tick). Nothing allocated in perform.
+- `tools/build_device.py` → `Lifegiver/Lifegiver.amxd/.maxpat` (never hand-edit; type `aaaa`; reads `version.h`;
+  checks wiring, layout, `---` names, parameter names). `tools/tests/` (harness with two simulated stores + tests).
+- `INSTALL.md`; CI `.github/workflows/lifegiver.yml` (tests + generator on Linux → universal mac build → release).
+- Save flow: lifegiver~ "getstate" → `t b b` → bang [pattr state] (→ `prepend statelist` → lifegiver~) and the
+  unnamed [dict] (→ "dictionary <name>" → lifegiver~). "statelist <numbers>" → [route] → pattr, and
+  `prepend replace state` → dict. Both hidden params: type 3, Stored Only, **initial enable 1, initial 0** (suspect).
 
 ## Parameters (Phase 1)
 | Name | Range | Purpose |
 |---|---|---|
 | Amount | 0–100 % (init 100) | Blend: 0 % = the input bit for bit; 100 % = full plan (now: unity) |
-| State | hidden blob | The engine's saved state as a number list (format, device id, saving build) |
+| State | hidden blob (pattr) | Saved state as a number list (format, device id, saving build) |
+| State Dict | hidden (unnamed dict) | Same list under key "state"; second route while saving is unproven |
 
 ## Decisions (and why)
-- Assistant, not autopilot; the role is the user's choice, never guessed, never changed by dragging.
-- Knobs relative to the reading and never moved by the stage: full travel both ways; the stage shows as an arc.
-- One solver (target distance + measured artifacts + identity loss); variations = tool preferences, mixes solved to
-  still hit the target: one chain, no extra CPU, no comb filtering.
-- Closed loop on the takes: the only way to know a plan hit the target; also gives exact static make-up and measured
-  safety (e.g. intermodulation before saturating).
-- Fast path (sensitivity table) for drags/automation; slow refine on the worker, debounced, smoothed hand-over.
-- Fixed module order (order as a choice can't be mixed); two saturation slots where order matters.
-- Zero latency (patcher `latency` 0): M4L latency is fixed, so every plan must have the same latency.
-- No output limiter; level = static make-up + stage level (0 to −3 dB); the fader owns the rest.
-- Saved: reading, plan, overrides, brain version, sensitivity table (not takes); reload plays the saved plan exactly.
-- Engine on doubles, straight on Max's buffers: bit-exact dry path, no conversion buffers to allocate.
-- Amount/make-up reach the audio thread as atomics (a ring could drop the newest value while audio is stopped).
-- First values before audio starts apply at once (a set saved at 0 % never fades in processed sound on load).
-- Smoothing = two one-pole stages, 4 ms each (S-shaped, ≈ 13 ms 90→10 %, exact after ≈ 77 ms): stays smooth when
-  automation retargets mid-glide, which a smoothstep ramp does not.
-- Amount is a Live parameter, so Live saves it; the engine state holds only what Live can't (and skips identical
-  saves: no extra undo steps).
-- Saved state = a number list inside the hidden parameter (magic + codec + entries, text as char codes): follows the
-  device, no shared names, no symbol per save; malformed lists are refused whole. Load logic lives in the controller
-  (asks at 0/300/800 ms, new device at 1.5 s, nothing saved before) so it is tested offline.
-- C++ engine like wanderer-synth (offline-testable, no silent gen~ failures); the brain lives in C++.
-- Earlier decisions still in force: input only, analysis only on takes; ERB-spaced analysis; soft antialiased low-order
-  saturation; reference compressor design with time constants from the lowest F0.
+- Design-level: assistant not autopilot; role by button only; knobs relative, never moved by the stage (stage arc);
+  one solver, variations = tool preferences, mixes re-solved; closed loop on the takes; fast path + slow refine; fixed
+  module order; zero latency; no limiter; level = static make-up + stage (0 to −3 dB). Full list: DESIGN.md.
+- Engine on doubles straight on Max's buffers: bit-exact dry path, no work buffers.
+- Amount/make-up as atomics (a ring could drop the newest value while audio is stopped); first values before audio
+  starts apply at once (no fade-in of processed sound on load).
+- Two one-pole smoothing stages, 4 ms each: S-shaped, smooth when automation retargets mid-glide.
+- Saved state as a number list (no shared names, no symbol per save, malformed lists refused whole); load logic in
+  the controller so it is tested offline: asks at 0/300/800 ms, "new device" at 1.5 s, first save at 4.5 s, a valid
+  state up to 10 s late still wins, disagreeing stores are re-synced, identical saves skipped (no undo steps).
 
 ## Rejected approaches
-Full list with reasons: DESIGN.md §16. Most likely to be re-proposed: sidechain listening, Motion, "like this" reference,
-taste learning, stage turning the knobs, role change by drag zones, order as a choice, output limiter, "input changed"
-light, audio-crossfade blending, triangle blend pad, gen~, sending knob values through the command ring, saving a dict
-name in the pattr (15a: lost on reload), a fixed-name or `---` dict for the state.
+DESIGN.md §16 for design. Build-level: a dict name in the pattr (15a: only the name is saved); a fixed-name or `---`
+dict (global/crosstalk, or renamed on reload); knob values through the command ring; gen~.
 
 ## Known issues
-- 15b save → reopen not yet verified in Live. Open: does Live keep the list at full precision (the codec's own numbers
-  survive 32-bit rounding; later plan values may need checking).
-- Sets saved with 15a hold a dict name: 15b treats them as new devices (tested) and saves properly from then on.
-- Wanderer's wrapper allocates on the audio thread (resize in perform), and its saving uses the 15a dict-name pattern
-  (likely broken in Live the same way): never copy those parts. Not fixed there (other repo).
+- Saving (above). Wanderer's State pattr has the same initial-enable setting, so it is probably affected too (another
+  chat is fixing Wanderer; CONVENTIONS "Saving in the Live set" holds what is known).
+- Wanderer's wrapper allocates on the audio thread (resize in perform): never copy that part.
 
 ## Next step
-Live test 3 (15c): two devices, wait ~5 s (the `[save]` lines), save → close → reopen; read the `[load]` lines. Keep the
-store that answers with "a Lifegiver state", remove the other, turn the trace off. If neither works: the lines show
-whether the stores never kept the list or answer in another form. Then Phase 2
-(offline test bench and yardsticks): ask the user for ~10 short dry stems (vocal, synth lead, pad, bass, kick, snare,
-guitar, pluck, noisy FX, something stereo; ideally a backing vocal).
+Fix saving, one Live test. Prime suspect: **Initial Enable on (initial 0) for the hidden state parameters**; Cycling '74
+docs say the initial value is recalled when a device is instantiated, saved or edited, which would wipe the stored list
+on load (both stores failed identically, and that setting is the one they share).
+1. `tools/build_device.py`: for State (and State Dict) drop `parameter_initial` / set `parameter_initial_enable` 0
+   (`valueof()` always sets it to 1 now: add an option). Bump to 15d. Keep the 15c trace for this test.
+2. Live test: new set, two devices, wait for `[save]`, save, reopen. Expect `state restored from the pattr`.
+3. If it still comes back `0`: check in Max (open the device, Inspector of `pattr state`) that Parameter Mode, Type
+   Blob and Stored Only are really applied after loading the generated JSON; try `live.thisdevice` + the stored value
+   via `pattr @autorestore` or a `[pattrstorage]`-free approach found by research. Don't build blind: research first.
+4. When it works: keep the store that answered, remove the other and the dict code, turn the trace off, update
+   CONVENTIONS ("proven"). Then Phase 2 (test bench; ask the user for ~10 short dry stems).

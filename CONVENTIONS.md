@@ -51,9 +51,11 @@ Stable rules for every device in this repo. Device-specific state lives in `devi
 
 ## Saving in the Live set
 
-- Store the data itself in a hidden blob parameter (`[pattr state]`, type 3, invisible), as a list of numbers. Never a dict name: a pattr given `dictionary <name>` saves only the name, `---` names change on reload, and the old name can point at another device's dict (Lifegiver 15a lost its state this way; wanderer-synth uses the same pattern and is affected).
+**NOT YET PROVEN in Live** (Lifegiver 15a–15c all lost their state on reopen). What is known:
+- Never a dict name in a pattr: a pattr given `dictionary <name>` saves only the name, `---` names change on reload, and the old name can point at another device's dict (Lifegiver 15a).
+- A hidden blob `[pattr state]` (type 3, Stored Only) does hold a number list during the session (traced in 15c), but after reopening it came back as its initial value 0; an unnamed `dict @parameter_enable 1` came back empty. Both had **Initial Enable on (initial 0)**; Cycling '74's docs say the initial value is recalled when a device is instantiated, saved or edited. Prime suspect: switch Initial Enable **off** for state parameters (wanderer-synth's State pattr has it on too). Confirm in Live before relying on it.
 - No new symbols per save (Max never frees symbols): encode text as character codes.
-- On load, ask for the stored value more than once (Live can restore it late) and save nothing until it is settled.
+- On load, ask for the stored value more than once and save nothing until it is settled (15c traces showed no late restore, but it costs nothing).
 
 ## Max JS rules
 
