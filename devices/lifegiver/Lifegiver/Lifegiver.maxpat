@@ -204,7 +204,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-15c"
+					"text": "patch 2026-10-15d"
 				}
 			},
 			{
@@ -248,10 +248,7 @@
 							"parameter_type": 3,
 							"parameter_mmin": 0,
 							"parameter_mmax": 1,
-							"parameter_initial": [
-								0
-							],
-							"parameter_initial_enable": 1,
+							"parameter_initial_enable": 0,
 							"parameter_unitstyle": 1,
 							"parameter_invisible": 1
 						}
@@ -303,10 +300,7 @@
 							"parameter_type": 3,
 							"parameter_mmin": 0,
 							"parameter_mmax": 1,
-							"parameter_initial": [
-								0
-							],
-							"parameter_initial_enable": 1,
+							"parameter_initial_enable": 0,
 							"parameter_unitstyle": 1,
 							"parameter_invisible": 1
 						}
@@ -523,11 +517,11 @@
 							"parameter_type": 0,
 							"parameter_mmin": 0,
 							"parameter_mmax": 100,
+							"parameter_initial_enable": 1,
+							"parameter_unitstyle": 5,
 							"parameter_initial": [
 								100
-							],
-							"parameter_initial_enable": 1,
-							"parameter_unitstyle": 5
+							]
 						}
 					}
 				}
@@ -562,7 +556,7 @@
 						60.0,
 						18.0
 					],
-					"text": "build 2026-10-15c",
+					"text": "build 2026-10-15d",
 					"presentation": 1,
 					"presentation_rect": [
 						10.0,

@@ -54,10 +54,15 @@ def wire(src, so, dst, di):
     lines.append({"patchline": {"source": [src, so], "destination": [dst, di]}})
 
 
-def valueof(longname, short, ptype, lo, hi, init, unitstyle=1, exponent=1.0, units=None, enum=None, invisible=0):
+def valueof(longname, short, ptype, lo, hi, init, unitstyle=1, exponent=1.0, units=None, enum=None, invisible=0,
+            initial_enable=1):
+    """initial_enable=0: no initial value at all (state parameters: Cycling '74's docs say an enabled initial value
+    is recalled when a device is instantiated, saved or edited, which would wipe a stored state list on load)."""
     v = {"parameter_longname": longname, "parameter_shortname": short, "parameter_type": ptype,
-         "parameter_mmin": lo, "parameter_mmax": hi, "parameter_initial": [init],
-         "parameter_initial_enable": 1, "parameter_unitstyle": unitstyle}
+         "parameter_mmin": lo, "parameter_mmax": hi,
+         "parameter_initial_enable": 1 if initial_enable else 0, "parameter_unitstyle": unitstyle}
+    if initial_enable:
+        v["parameter_initial"] = [init]
     if exponent != 1.0:
         v["parameter_exponent"] = exponent
     if units:
@@ -110,13 +115,14 @@ wire(tinit, 1, vmsg, 0); wire(vmsg, 0, vprint, 0)
 # saving: a hidden blob parameter holding the engine's state as a list of numbers (source/engine/state.h).
 # The list itself is stored in the set (not a dict name: build 15a saved only a name, which changes on reload).
 pattr = obj("pattr state", (600, 300, 82, 22), ins=1, outs=3, parameter_enable=1,
-            saved_attribute_attributes=valueof("State", "State", 3, 0, 1, 0, invisible=1))
+            saved_attribute_attributes=valueof("State", "State", 3, 0, 1, 0, invisible=1, initial_enable=0))
 pstate = obj("prepend statelist", (600, 330, 100, 22))
 wire(pattr, 0, pstate, 0); wire(pstate, 0, eng, 0)
 # second store (15c, while saving is being proven in Live): an unnamed dict saved with the set (its own unique
 # name, so no crosstalk), holding the same list under key "state". The engine reports which store answered.
 sdict = obj("dict", (760, 300, 40, 22), ins=2, outs=4, parameter_enable=1,
-            saved_attribute_attributes=valueof("State Dict", "State Dict", 3, 0, 1, 0, invisible=1), embed=0)
+            saved_attribute_attributes=valueof("State Dict", "State Dict", 3, 0, 1, 0, invisible=1, initial_enable=0),
+            embed=0)
 wire(sdict, 0, eng, 0)                       # "dictionary <its name>" -> lifegiver~ reads key "state"
 route = obj("route getstate statelist", (200, 400, 150, 22), ins=2, outs=3)
 wire(eng, 2, route, 0)
@@ -242,6 +248,11 @@ def check():
     longnames = [b["box"]["saved_attribute_attributes"]["valueof"]["parameter_longname"]
                  for b in boxes if b["box"].get("parameter_enable") == 1]
     assert len(longnames) == len(set(longnames)), f"duplicate Live parameter names: {longnames}"
+    # state (blob) parameters must have no initial value: an enabled one is recalled on load and wipes the state
+    for b in boxes:
+        v = b["box"].get("saved_attribute_attributes", {}).get("valueof", {})
+        if b["box"].get("parameter_enable") == 1 and v.get("parameter_type") == 3:
+            assert v["parameter_initial_enable"] == 0 and "parameter_initial" not in v, v["parameter_longname"]
     assert patcher["patcher"]["project"]["amxdtype"] == 1633771873
 
 
