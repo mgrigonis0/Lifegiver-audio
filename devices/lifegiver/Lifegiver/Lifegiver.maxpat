@@ -204,7 +204,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-15d"
+					"text": "patch 2026-10-15e"
 				}
 			},
 			{
@@ -241,6 +241,11 @@
 					],
 					"text": "pattr state",
 					"parameter_enable": 1,
+					"varname": "state",
+					"saved_object_attributes": {
+						"parameter_enable": 1,
+						"parameter_mappable": 0
+					},
 					"saved_attribute_attributes": {
 						"valueof": {
 							"parameter_longname": "State",
@@ -293,6 +298,11 @@
 					],
 					"text": "dict",
 					"parameter_enable": 1,
+					"saved_object_attributes": {
+						"embed": 0,
+						"parameter_enable": 1,
+						"parameter_mappable": 0
+					},
 					"saved_attribute_attributes": {
 						"valueof": {
 							"parameter_longname": "State Dict",
@@ -304,8 +314,7 @@
 							"parameter_unitstyle": 1,
 							"parameter_invisible": 1
 						}
-					},
-					"embed": 0
+					}
 				}
 			},
 			{
@@ -556,7 +565,7 @@
 						60.0,
 						18.0
 					],
-					"text": "build 2026-10-15d",
+					"text": "build 2026-10-15e",
 					"presentation": 1,
 					"presentation_rect": [
 						10.0,
