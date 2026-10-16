@@ -131,6 +131,10 @@ loudness-matched: an unmatched louder result is preferred for the wrong reason.
   colourless tail. [43][44]
 
 **For Lifegiver:**
+- **Not sameness.** These findings describe averages; character lives in the exceptions (grit, edge, a ring, a
+  rough texture). Pleasantness is never a target every sound is pushed toward: it only stops the device from adding
+  unpleasantness the user didn't ask for. What the sound already has stays (Identity), and asks for edge, grit or
+  drive override it.
 - A "pleasantness guard" is measurable: energy and slow modulation at 2.5–5.5 kHz, sharpness, roughness (20–150 Hz
   envelope modulation per band) and sharp spectral peaks. Characters and boosts should not raise these unasked; Polish
   can actively lower them. This extends the harshness tamer and the resonance tamer, not a new module.
