@@ -9,6 +9,7 @@ You get a folder `Lifegiver` with:
 
 - `lifegiver~.mxo`: the engine
 - `Lifegiver.amxd`: the Live device (an audio effect)
+- `lifegiver.strip.js`: the device's display (keep it next to the `.amxd`)
 
 If you're updating, **quit Live completely first** (Live keeps a loaded engine in memory), replace the whole old
 `Lifegiver` folder, and load a fresh `Lifegiver.amxd` from it (a copy saved inside a set keeps its old layout).
@@ -33,20 +34,26 @@ Drag `Lifegiver.amxd` from that folder onto an audio track that plays something.
 The Max window (open the device editor, then Cmd+M) shows two lines when everything loaded:
 
 ```
-lifegiver: engine 2026-10-15e ready, device ...
-lifegiver: patch 2026-10-15e
+lifegiver: engine 2026-10-16a ready, device ...
+lifegiver: patch 2026-10-16a
 ```
 
 and, a moment later, `lifegiver: new device, id ....` (or `state restored, id ....` in a saved set).
 A red `lifegiver~` box or no sound: copy the red lines from the Max window and send them.
 
-## First build: what to check
+## This build (2026-10-16a): what to check
 
-This build only passes the sound through; the shaping comes in later builds.
+The first build that shapes sound: Listen, the reading, the stage, the knobs, the tools, Moves and the A–E mix.
 
-1. **Sound passes:** the track sounds exactly as without the device.
-2. **Amount:** turning it changes nothing yet (there is nothing to blend in), and it never clicks.
-3. **Version:** the two lines above show the same build.
-4. **Two devices:** put a second Lifegiver on another track: each gets its own id in the Max window.
-5. **Save and reopen:** note the id, save the set, close it, reopen it: the Max window says
-   `state restored, id ....` with the same number.
+1. **Before Listen:** the sound passes untouched; the stage says "Listen first".
+2. **Listen:** press **Arm**, play the part (it starts at the first sound and stops by itself after ~4 s of sound).
+   Up to 4 takes; a take's **x** removes it. Listen shows the notes heard and how sure it is; the knobs show the
+   reading in words.
+3. **Role and stage:** click a role (Lead, Bass, …): the shape drops into its place. Drag the shape (pan, distance),
+   its side handles (width), the top handle (edge), the range strip's handles. Moves lists what it does.
+4. **Knobs:** drag up/down (Shift = fine, double-click = 0). The teal arc is what the stage asks.
+5. **A–E:** the bars set each strategy's strength; a letter auditions it alone (click again to stop).
+6. **Amount** (0 % = the original), **Compare** (the original, level-matched), **Clean**.
+7. **Save and reopen:** the reading and the sound come back exactly (the takes don't: "re-listen to refine").
+
+Send the Max window lines if anything looks wrong, and say what you hear.

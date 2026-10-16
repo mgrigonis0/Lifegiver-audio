@@ -33,6 +33,11 @@ Stable rules for every device in this repo. Device-specific state lives in `devi
 
 ## Threads (C++ engines)
 
+- Max's `z_dsp.h` defines `PI` (and `TWOPI`) as macros: never name an engine constant `PI` (Lifegiver uses `kPi`). The
+  wrapper can be syntax-checked on Linux against max-sdk-base with stub `MacTypes.h`/`libkern/OSAtomic.h`.
+- Long work (analysis, solving) runs on a worker thread owned by the external: `Host::post(work, done)`, `done` runs
+  on the main thread from the clock; results carry a generation number so stale ones are dropped.
+
 - The audio thread never allocates, locks or frees. The main thread talks to it through a command ring; it answers through a report ring; big data (tables, buffers, plans) is handed over by pointer and freed back on the main thread. An offline test counts allocations during `process()` (must be 0).
 - Continuous values (knobs, amounts) go to the audio thread as atomics, latest value wins, read once per block: a ring can fill while audio is stopped and drop the newest value. Rings are for events.
 - Values that arrive before audio starts (a set loading, audio restarting) apply at once; later changes glide.
@@ -61,6 +66,11 @@ Stable rules for every device in this repo. Device-specific state lives in `devi
 - No new symbols per save (Max never frees symbols): encode text as character codes.
 
 ## Max JS rules
+
+- Keep view files plain ASCII: non-ASCII text in strings as `\u` escapes (Max reads the file's bytes as they are).
+- Offline check (no npm here: the registry is blocked by policy): `node tools/ui/check_view.js` runs the view in a mock
+  `mgraphics` (ES5 check, every state painted, clicks/drags → messages); `tools/ui/render_view.py` draws the recorded
+  calls with cairo (ctypes, the library mgraphics is built on) to a PNG for comparing with the mockup.
 
 - Dicts turn 1-element arrays into scalars; no nested arrays, no `null` (use a converter like `toArr`).
 - Use `Object.prototype.toString` checks, not `instanceof Array`.

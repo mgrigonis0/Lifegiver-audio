@@ -15,7 +15,7 @@
 
 namespace lg {
 
-constexpr double PI = 3.14159265358979323846;
+constexpr double kPi = 3.14159265358979323846;
 
 inline double clampd(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline double dbToLin(double db) { return std::pow(10.0, db / 20.0); }
@@ -33,7 +33,7 @@ struct Svf {
     void set(Mode mode, double f, double q, double gainDb, double sr) {
         f = clampd(f, 5.0, 0.49 * sr);
         q = q > 0.05 ? q : 0.05;
-        double g = std::tan(PI * f / sr);
+        double g = std::tan(kPi * f / sr);
         const double A = std::pow(10.0, gainDb / 40.0);
         k = 1.0 / q;
         switch (mode) {
@@ -63,7 +63,7 @@ struct Svf {
     // v0 = HP + k BP + LP: cHP = m0, cBP = m0 k + m1, cLP = m0 + m2.
     double mag(double f, double sr) const {
         const double g = a2 / a1;
-        const double w = std::tan(PI * clampd(f, 0.0, 0.4999 * sr) / sr) / (g > 0 ? g : 1e-12);
+        const double w = std::tan(kPi * clampd(f, 0.0, 0.4999 * sr) / sr) / (g > 0 ? g : 1e-12);
         const double cHP = m0, cBP = m0 * k + m1, cLP = m0 + m2;
         const double rn = cLP - cHP * w * w, in = cBP * w;
         const double rd = 1 - w * w, id = k * w;
@@ -75,7 +75,7 @@ struct Svf {
 struct OnePole {
     double b = 0, z = 0;
     void reset() { z = 0; }
-    void setLP(double f, double sr) { b = 1.0 - std::exp(-2 * PI * clampd(f, 0.1, 0.45 * sr) / sr); }
+    void setLP(double f, double sr) { b = 1.0 - std::exp(-2 * kPi * clampd(f, 0.1, 0.45 * sr) / sr); }
     inline double lp(double x) { z += b * (x - z); if (std::fabs(z) < 1e-25) z = 0; return z; }
     inline double hp(double x) { return x - lp(x); }
 };

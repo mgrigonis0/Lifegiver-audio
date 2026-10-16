@@ -5,8 +5,13 @@ Writes devices/lifegiver/Lifegiver/Lifegiver.maxpat (plain patcher) and Lifegive
 effect). Same generator design as wanderer-synth's tools/build_device.py.
 
 Signal:   plugin~ -> lifegiver~ (left: inlet 0, right: inlet 1) -> plugout~
-Controls: every Live control -> [prepend <name>] -> lifegiver~
-Load:     live.thisdevice -> "init" (lifegiver~ pulls its saved state), controls re-output, version printed
+View:     one jsui (Lifegiver/lifegiver.strip.js) draws the whole strip after the approved mockup. It sends
+          "p <name> <value>" -> [route p] -> [route <names>] -> the hidden Live parameters (live.dial), and the rest
+          (arm, removetake, pickrole, solo, compare) straight to lifegiver~.
+Controls: every Live parameter -> [prepend <name>] -> lifegiver~ and the view (automation, mapping and saving are Live's)
+Engine:   lifegiver~ info -> [route getstate statelist param] -> the pattr / the parameters ("param <name> <v>": the role
+          buttons' starting places) / the view (numbers only)
+Load:     live.thisdevice -> parameters re-output, version printed, "init" (lifegiver~ pulls its saved state)
 Saving:   [pattr state] is a hidden Live parameter (blob) holding the engine's state as a list of numbers:
           lifegiver~ "getstate" -> pattr bang -> [prepend statelist] -> lifegiver~;
           lifegiver~ "statelist <numbers>" -> [route] -> pattr (stored in the Live set)
@@ -78,24 +83,6 @@ def rgba(c, a=1.0):
     return [c[0], c[1], c[2], a]
 
 
-# --------------------------------------------------------------------------------------------- colours (Wanderer's)
-C = {"listen": (0.937, 0.353, 0.373), "stage": (0.31, 0.784, 0.753), "tone": (0.953, 0.604, 0.231),
-     "dyn": (0.29, 0.639, 0.961), "moves": (0.655, 0.545, 0.98), "out": (0.941, 0.541, 0.478)}
-PANEL = (0.11, 0.114, 0.125)
-TXT = (0.925, 0.925, 0.925)
-DIM = (0.55, 0.55, 0.56)
-
-INFO = {
-    "amount": "How much of Lifegiver you hear: 0 % = the original, untouched; 100 % = the full plan. "
-              "In this first build there is no plan yet, so the sound passes through unchanged.",
-}
-
-
-def info(name, title):
-    t = INFO.get(name)
-    return {"annotation": t, "annotation_name": title} if t else {}
-
-
 # --------------------------------------------------------------------------------------------- core
 plug_in = obj("plugin~", (40, 260, 60, 22), ins=2, outs=2, outtypes=["signal", "signal"])
 eng = obj("lifegiver~ ---lfg", (40, 300, 140, 22), ins=2, outs=3, outtypes=["signal", "signal", ""])
@@ -114,79 +101,84 @@ wire(tinit, 1, vmsg, 0); wire(vmsg, 0, vprint, 0)
 
 # saving: a hidden blob parameter holding the engine's state as a list of numbers (source/engine/state.h).
 # The list itself is stored in the set (not a dict name: build 15a saved only a name, which changes on reload).
-# Parameter mode of a plain object (pattr, dict) is an OBJECT attribute: Max reads it from saved_object_attributes
-# (as Max itself writes it). A box-level parameter_enable only works for UI objects such as live.dial; on a pattr it
-# is ignored, so Live had nothing to store (15a-15d: the set held an empty blob).
+# Parameter mode of a plain object (pattr) is an OBJECT attribute: Max reads it from saved_object_attributes (as Max
+# itself writes it). A box-level parameter_enable only works for UI objects such as live.dial; on a pattr it is
+# ignored, so Live had nothing to store (15a-15d: the set held an empty blob). Proven in Live with 15e.
 pattr = obj("pattr state", (600, 300, 82, 22), ins=1, outs=3, parameter_enable=1, varname="state",
             saved_object_attributes={"parameter_enable": 1, "parameter_mappable": 0},
             saved_attribute_attributes=valueof("State", "State", 3, 0, 1, 0, invisible=1, initial_enable=0))
 pstate = obj("prepend statelist", (600, 330, 100, 22))
 wire(pattr, 0, pstate, 0); wire(pstate, 0, eng, 0)
-# second store (15c, while saving is being proven in Live): an unnamed dict saved with the set (its own unique
-# name, so no crosstalk), holding the same list under key "state". The engine reports which store answered.
-sdict = obj("dict", (760, 300, 40, 22), ins=2, outs=4, parameter_enable=1,
-            saved_object_attributes={"embed": 0, "parameter_enable": 1, "parameter_mappable": 0},
-            saved_attribute_attributes=valueof("State Dict", "State Dict", 3, 0, 1, 0, invisible=1, initial_enable=0))
-wire(sdict, 0, eng, 0)                       # "dictionary <its name>" -> lifegiver~ reads key "state"
-route = obj("route getstate statelist", (200, 400, 150, 22), ins=2, outs=3)
-wire(eng, 2, route, 0)
-tget = obj("t b b", (200, 430, 40, 22), ins=1, outs=2, outtypes=["bang", "bang"])
-wire(route, 0, tget, 0); wire(tget, 0, pattr, 0); wire(tget, 1, sdict, 0)
-wire(route, 1, pattr, 0)
-prep = obj("prepend replace state", (760, 430, 120, 22))
-wire(route, 1, prep, 0); wire(prep, 0, sdict, 0)
 
-# --------------------------------------------------------------------------------------------- layout (1x)
-DEV_H = 169
-PY, PH = 4, 161
-IP = 6
-CELL = 44
-PANEL_W = 2 * IP + 120
-PX = 6
-DEVICE_W = PX + PANEL_W + 6
-Y0 = PY + 4
+# --------------------------------------------------------------------------------------------- the Live parameters
+# Hidden in the device (the view draws them), but real Live parameters: automatable, saved, mappable.
+# (message name, long name, short name, type 0 float / 2 enum, min, max, initial, unit style, exponent, enum)
+PARAMS = [
+    ("weight", "Weight", "Weight", 0, -10, 10, 0, 1, 1.0, None),
+    ("warm", "Warm", "Warm", 0, -10, 10, 0, 1, 1.0, None),
+    ("bite", "Bite", "Bite", 0, -10, 10, 0, 1, 1.0, None),
+    ("air", "Air", "Air", 0, -10, 10, 0, 1, 1.0, None),
+    ("texture", "Texture", "Texture", 0, -10, 10, 0, 1, 1.0, None),
+    ("punch", "Punch", "Punch", 0, -10, 10, 0, 1, 1.0, None),
+    ("tail", "Tail", "Tail", 0, -10, 10, 0, 1, 1.0, None),
+    ("steady", "Steady", "Steady", 0, -10, 10, 0, 1, 1.0, None),
+    ("role", "Role", "Role", 2, 0, 6, 0, 0, 1.0, ["Lead", "Hook", "Support", "Rhythm", "Bass", "Bed", "FX"]),
+    ("pan", "Stage Pan", "Pan", 0, -1, 1, 0, 1, 1.0, None),
+    ("depth", "Distance", "Distance", 0, 0, 1, 0.82, 1, 1.0, None),
+    ("width", "Width", "Width", 0, 0, 1, 0.35, 1, 1.0, None),
+    ("edge", "Edge", "Edge", 0, 0, 1, 0, 1, 1.0, None),
+    ("lo", "Range Lo", "Range Lo", 0, 20, 20000, 60, 3, 3.0, None),
+    ("hi", "Range Hi", "Range Hi", 0, 20, 20000, 20000, 3, 3.0, None),
+    ("fit", "Identity Fit", "Id-Fit", 0, 0, 1, 0.5, 1, 1.0, None),
+    ("amount", "Amount", "Amount", 0, 0, 100, 100, 5, 1.0, None),
+    ("clean", "Clean", "Clean", 0, 0, 100, 40, 5, 1.0, None),
+    ("vara", "Var A Clean", "A", 0, 0, 100, 70, 5, 1.0, None),
+    ("varb", "Var B Rich", "B", 0, 0, 100, 0, 5, 1.0, None),
+    ("varc", "Var C Bold", "C", 0, 0, 100, 30, 5, 1.0, None),
+    ("vard", "Var D Vintage", "D", 0, 0, 100, 0, 5, 1.0, None),
+    ("vare", "Var E Tight", "E", 0, 0, 100, 0, 5, 1.0, None),
+]
+NAMES = [p[0] for p in PARAMS]
 
-box("panel", (970, 20, 40, 30), ins=1, outs=0, pres=(PX, PY, PANEL_W, PH), bgcolor=rgba(PANEL), border=0,
-    rounded=6, background=1, ignoreclick=1, mode=0)
+INFO = {
+    "view": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). "
+            "Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; "
+            "the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it "
+            "does; A–E mix five strategies. Amount 0 % = the original, untouched.",
+}
 
+# the view: the whole strip, one jsui
+DEVICE_W, DEV_H = 1200, 169
+view = box("jsui", (40, 520, 300, 60), ins=1, outs=1, pres=(0, 0, DEVICE_W, DEV_H), filename="lifegiver.strip.js",
+           parameter_enable=0, border=0, annotation=INFO["view"], annotation_name="Lifegiver")
 
-def header(title, color, x, w):
-    box("live.comment", (1000, 40 + len(boxes), 80, 18), text=title, ins=1, outs=0,
-        pres=(x - 3, Y0 - 3, w + 6, 14), textcolor=rgba(color), fontname="Ableton Sans Bold", fontsize=9.5, fontface=1)
-    box("panel", (1100, 40 + len(boxes), 80, 2), ins=1, outs=0, pres=(x, Y0 + 11, w, 2),
-        bgcolor=rgba(color, 0.55), border=0, rounded=1, ignoreclick=1)
+# view → parameters ("p <name> <value>") or the engine (everything else)
+vroute = obj("route p", (40, 600, 60, 22), ins=2, outs=2)
+wire(view, 0, vroute, 0)
+wire(vroute, 1, eng, 0)
+proute = obj("route " + " ".join(NAMES), (40, 640, 900, 22), ins=2, outs=len(NAMES) + 1)
+wire(vroute, 0, proute, 0)
 
-
-def label(text, x, y, w, color=TXT, size=8.5):
-    box("live.comment", (1200, 40 + len(boxes), 60, 18), text=text, ins=1, outs=0, pres=(x - 2, y - 2, w + 4, 13),
-        textcolor=rgba(color), fontsize=size, textjustification=1)
-
+# engine → [route getstate statelist param] → the pattr, the parameters; the rest → the view
+eroute = obj("route getstate statelist param", (200, 400, 180, 22), ins=2, outs=4)
+wire(eng, 2, eroute, 0)
+tget = obj("t b", (200, 430, 30, 22), ins=1, outs=1, outtypes=["bang"])
+wire(eroute, 0, tget, 0); wire(tget, 0, pattr, 0)
+wire(eroute, 1, pattr, 0)
+wire(eroute, 2, proute, 0)
+wire(eroute, 3, view, 0)
 
 bang_at_init = []
-
-
-def to_engine(name, src, x, y):
-    pre = obj(f"prepend {name}", (x, y, 100, 22))
-    wire(src, 0, pre, 0)
+for i, (name, longn, short, ptype, lo, hi, init, ustyle, expo, enum) in enumerate(PARAMS):
+    px, py = 40 + (i % 12) * 75, 700 + (i // 12) * 110
+    d = box("live.dial", (px, py, 44, 48), ins=1, outs=2, outtypes=["", "float"], varname=longn, parameter_enable=1,
+            saved_attribute_attributes=valueof(longn, short, ptype, lo, hi, init, ustyle, exponent=expo, enum=enum))
+    wire(proute, i, d, 0)
+    pre = obj(f"prepend {name}", (px, py + 55, 70, 22))
+    wire(d, 0, pre, 0)
     wire(pre, 0, eng, 0)
-
-
-def dial(name, longn, short, lo, hi, init, ustyle, color, pres, at=(0, 0)):
-    d = box("live.dial", (700 + at[0], 600 + at[1], 44, 48), ins=1, outs=2, outtypes=["", "float"], pres=pres,
-            varname=longn, parameter_enable=1, **info(name, longn), fontsize=8.5,
-            activedialcolor=rgba(color), activeneedlecolor=rgba(color), dialcolor=rgba((0.055, 0.055, 0.063)),
-            textcolor=rgba(TXT), showname=1, shownumber=1,
-            saved_attribute_attributes=valueof(longn, short, 0, lo, hi, init, ustyle))
+    wire(pre, 0, view, 0)
     bang_at_init.append(d)
-    to_engine(name, d, 700 + at[0], 655 + at[1])
-    return d
-
-
-x0 = PX + IP
-header("LIFEGIVER", C["out"], x0, PANEL_W - 2 * IP)
-label("first build: pass-through", x0, Y0 + 20, PANEL_W - 2 * IP, DIM, 8.0)
-dial("amount", "Amount", "Amount", 0, 100, 100, 5, C["out"], (x0 + (PANEL_W - 2 * IP - CELL) / 2, Y0 + 44, CELL, 50))
-label(f"build {VERSION}", x0, PY + PH - 16, PANEL_W - 2 * IP, DIM, 7.5)
 
 for d in bang_at_init:
     wire(tinit, 2, d, 0)
@@ -205,7 +197,8 @@ patcher = {
         "enablevscroll": 1, "devicewidth": float(DEVICE_W), "description": "Lifegiver",
         "digest": "", "tags": "", "style": "", "subpatcher_template": "",
         "boxes": boxes, "lines": lines,
-        "dependency_cache": [{"name": "lifegiver~.mxo", "type": "iLaX"}],
+        "dependency_cache": [{"name": "lifegiver.strip.js", "bootpath": ".", "patcherrelativepath": ".", "type": "TEXT", "implicit": 1},
+                             {"name": "lifegiver~.mxo", "type": "iLaX"}],
         "latency": LATENCY, "is_mpe": 0, "minimum_live_version": "", "minimum_max_version": "",
         "platform_compatibility": 0,
         "project": {

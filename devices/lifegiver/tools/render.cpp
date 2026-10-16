@@ -5,6 +5,9 @@
 //   render file <in.wav> <out.wav> [role=Lead] [knob.Bite=3] [depth=0.8] [vars=70,0,30,0,0] ...
 //
 // Build: g++ -std=c++17 -O2 -o render render.cpp -lpthread
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"   // a GCC false positive inside std::vector (inlined)
+#endif
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>

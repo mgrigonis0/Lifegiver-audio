@@ -51,7 +51,7 @@ struct Biquad {
 inline void kWeighting(double sr, Biquad& shelf, Biquad& hp) {
     {
         const double G = 3.999843853973347, Q = 0.7071752369554196, fc = 1681.974450955533;
-        const double K = std::tan(PI * fc / sr), Vh = std::pow(10.0, G / 20.0), Vb = std::pow(Vh, 0.4996667741545416);
+        const double K = std::tan(kPi * fc / sr), Vh = std::pow(10.0, G / 20.0), Vb = std::pow(Vh, 0.4996667741545416);
         const double a0 = 1 + K / Q + K * K;
         shelf.b0 = (Vh + Vb * K / Q + K * K) / a0;
         shelf.b1 = 2 * (K * K - Vh) / a0;
@@ -61,7 +61,7 @@ inline void kWeighting(double sr, Biquad& shelf, Biquad& hp) {
     }
     {
         const double Q = 0.5003270373238773, fc = 38.13547087602444;
-        const double K = std::tan(PI * fc / sr);
+        const double K = std::tan(kPi * fc / sr);
         const double a0 = 1 + K / Q + K * K;
         hp.b0 = 1; hp.b1 = -2; hp.b2 = 1;
         hp.a1 = 2 * (K * K - 1) / a0;

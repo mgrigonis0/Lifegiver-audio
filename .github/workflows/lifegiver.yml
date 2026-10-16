@@ -18,6 +18,10 @@ jobs:
         run: |
           g++ -std=c++17 -O2 -Wall -Wextra -o engine_test devices/lifegiver/tools/tests/engine_test.cpp -lpthread
           ./engine_test
+      - name: The view (ES5, plain ASCII, paints every state, clicks and drags)
+        run: node devices/lifegiver/tools/ui/check_view.js devices/lifegiver/Lifegiver/lifegiver.strip.js /tmp
+      - name: The offline bench builds
+        run: g++ -std=c++17 -O2 -Wall -Wextra -o render devices/lifegiver/tools/render.cpp -lpthread
       - name: Generate the device (checks wiring, layout, parameter names)
         run: python3 devices/lifegiver/tools/build_device.py
 
@@ -56,7 +60,7 @@ jobs:
           python3 tools/build_device.py
           mkdir -p dist/Lifegiver
           cp -R "externals/lifegiver~.mxo" dist/Lifegiver/
-          cp Lifegiver/Lifegiver.amxd dist/Lifegiver/
+          cp Lifegiver/Lifegiver.amxd Lifegiver/*.js dist/Lifegiver/
           cp INSTALL.md dist/Lifegiver/
           cd dist && ditto -c -k --sequesterRsrc --keepParent Lifegiver ../lifegiver-mac.zip
 

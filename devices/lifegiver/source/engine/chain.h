@@ -258,8 +258,8 @@ private:
                 xoHi[c][k].set(Svf::HP, cur[P_MONO_HZ], 0.7071, 0, sr);
             }
         panP = clampd(cur[P_PAN], -1, 1);
-        panC = std::cos(std::fabs(panP) * PI / 2);
-        panS = std::sin(std::fabs(panP) * PI / 2);
+        panC = std::cos(std::fabs(panP) * kPi / 2);
+        panS = std::sin(std::fabs(panP) * kPi / 2);
         stageMix.set((cur[P_WIDTH] != 1.0 || panP != 0.0) ? 1.0 : 0.0);
         gainSm.set(dbToLin(cur[P_MAKEUP_DB] + cur[P_STAGE_DB]));
     }

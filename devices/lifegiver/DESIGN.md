@@ -1,6 +1,6 @@
 # Lifegiver — Design
 
-_2026-10-15 (revised after the pre-build review, `REVIEW.md`). The full design as decided. `HANDOFF.md` holds the
+_2026-10-16 (revised after the pre-build review, `REVIEW.md`; §17 holds what build 16a actually does). The full design as decided. `HANDOFF.md` holds the
 current state; this file holds the what and the why. Theory and sources: `RESEARCH.md`. Build order: `BUILD_PLAN.md`._
 
 ## 1. What the device is
@@ -253,6 +253,56 @@ latency, CPU); more than 3 bands (artifacts for little gain); output limiter (§
 - Role target tables (what each role/position asks of each quality): first draft in the build, tuned by ear.
 - Specificity detection (§6): proxy to test on the stems.
 - Whether the full UI fits 169 px or the Moves console needs a pop-out: decide on mockup v2.
+
+## 17. As built (16a): the concrete definitions
+
+First drafts, measured on the synthetic signals and the user's 10 stems (`tools/render bench`); tuned by ear next.
+
+**Measures** (`source/engine/measure.h`), each in dB, relative to the sound; frames, onsets and level windows are
+chosen once on the input take and reused for every processed render (a change is the processing, never the selection):
+- Weight / Warm / Bite / Air = power in [range lo–150 Hz] / [150–600 Hz] / [1.8–5 kHz] / [8 kHz–range hi] vs the rest
+  of the range. A band (almost) empty (< −40 dB) can't be shaped: its knob shows "nothing to shape".
+- Texture = spectral flatness 500 Hz–8 kHz (partials and noise filling the gaps; partial density per ERB, §RESEARCH).
+- Punch = 64 Hz–1 kHz transient peak (first 30 ms after an onset) over the body 60–120 ms later.
+- Tail = level 150–400 ms after each onset vs its peak. Steady = minus the spread (P90−P10) of the 50 ms level.
+- Onsets: in any of 4 broad bands, a 6 dB rise over the last 60 ms that stays up for 30 ms (legato notes count; the
+  pitch-period pulses of low notes and steady noise don't).
+- Loudness: BS.1770 (K-weighted, gated), for the static make-up.
+
+**Steps**: a knob is −10…+10; a full turn = this sound's safe maximum of that measure (e.g. Air +6 dB, +3 if already
+airy; cuts get more room), × 0.6–1.0 by certainty. Stage pushes are in the same steps.
+
+**Solver** (`brain.h`): Levenberg-Marquardt on finite-difference sensitivities (then Broyden updates, re-probed when the
+model is off), regularised by the variation mix's tool costs, plus a cost on loudness change (a tool must not hide
+behind make-up). The solver only moves tools that serve an asked quality (`TOOL_FOR`): Weight → low shelf; Warm →
+bell 300 Hz, saturation; Bite → bell 3 kHz, saturation; Air → high shelf, tilt (D only); Texture → saturation;
+Punch → transient attack, compressor; Tail → transient sustain, compressor, expander; Steady → compressor,
+expander. An asked quality with no tool in the mix (grain in "Clean") is reported unreached, not faked. Reach =
+the share of what was asked that arrived, weighted by how much was asked. The closed loop renders ≤ 6 s of the takes.
+
+**Variations** = tool costs (A Clean: EQ + transparent dynamics, no saturation; B Rich: even harmonics, glue;
+C Bold: presence, attack, odd harmonics; D Vintage: tilt, soft harmonics, slow; E Tight: control) + a compressor
+style and saturation evenness each; mixes are geometric means of costs. Saturation costs 9× more on noisy sounds.
+Default mix A 70 % / C 30 % (the mockup's).
+
+**Stage**: role pushes from the mockup (Lead: Bite +1, Air +1; …), scaled by Identity↔Fit (0.4–1.0); distance:
+Bite/Air/Punch ±1.5, Tail ∓1.5, Steady +|f|; edge: Texture +3·edge, Steady +1.5·edge; level 0…−3 dB.
+Role starting places revised from the mockup: open ranges (Lead 60 Hz–20 k, Rhythm 25 Hz–20 k, Bass 25 Hz–16 k, …;
+the mockup's 9 k top for Lead would have cut a vocal's air), roles that own their lows never start above 0.8 × the
+sound's lowest content, and edge starts at 0–0.15 (saturation is never a default move).
+Width 0.5 = as the sound is (side gain 0.25 + 1.5·width); widening capped where mono would suffer; **Clean** also
+narrows a sound that loses > 1.5 dB in mono (the widened Juno stem). Stereo stage on a Linkwitz-Riley split at 120 Hz:
+lows never widened, true pan moves only the highs (lows stay put), fades in/out so a neutral stage is the input.
+
+**Chain** (`chain.h`): low cut → EQ (SVF) → tilt → saturation (tanh + bias, ADAA residual added to the untouched
+input: zero latency, exact at 0, aliasing < −40 dBc at full drive) → compressor/expander (Giannoulis, peak envelope,
+60 Hz HP detector, attack/release ≥ ½ / 5 periods of the lowest note) → transient shaper (fast/slow envelope
+difference, 50–1500 Hz detector) → high cut → stereo stage → make-up + stage level. Every value glides (two one-pole
+stages, 15 ms). CPU with every module working: ~1.9 % of one core (Linux CI machine, 48 kHz).
+
+**Not yet** (next builds): dynamic EQ and resonance tamer (Clean's second job), multiband, post-saturation slot,
+short ambience, specificity detection for Identity (Identity↔Fit only scales the role's pull and protects unasked
+qualities for now), the Moves pop-out (on/off, amount, method swap), Texture − (smoothing).
 
 ## 16. Rejected / superseded (one line each)
 

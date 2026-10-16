@@ -36,8 +36,8 @@ inline Audio lead(double sec = 4, double sr = 48000, double level = 0.25) {
     for (size_t i = 0; i < n; i++) {
         const size_t k = i / noteLen, j = i % noteLen;
         const double f = mtof(notes[k % 8]);
-        ph += 2 * lg::PI * f / sr;
-        if (ph > 2 * lg::PI * 1000) ph = std::fmod(ph, 2 * lg::PI);
+        ph += 2 * lg::kPi * f / sr;
+        if (ph > 2 * lg::kPi * 1000) ph = std::fmod(ph, 2 * lg::kPi);
         const double t = j / sr;
         double env = std::min(1.0, t / 0.008) * (0.8 + 0.2 * std::exp(-t / 0.08));
         if (j > noteLen - (size_t)(0.03 * sr)) env *= (noteLen - j) / (0.03 * sr);
@@ -54,10 +54,10 @@ inline Audio pad(double sec = 4, double sr = 48000, double level = 0.15) {
     double phL[4] = {0, 0, 0, 0}, phR[4] = {0, 0, 0, 0};
     for (size_t i = 0; i < a.size(); i++) {
         const double t = i / sr;
-        const double env = std::min(1.0, t / 0.6) * (0.85 + 0.15 * std::sin(2 * lg::PI * 0.3 * t));
+        const double env = std::min(1.0, t / 0.6) * (0.85 + 0.15 * std::sin(2 * lg::kPi * 0.3 * t));
         double L = 0, R = 0;
         for (int v = 0; v < 4; v++) {
-            phL[v] += 2 * lg::PI * fs[v] * 1.002 / sr; phR[v] += 2 * lg::PI * fs[v] * 0.998 / sr;
+            phL[v] += 2 * lg::kPi * fs[v] * 1.002 / sr; phR[v] += 2 * lg::kPi * fs[v] * 0.998 / sr;
             L += harm(phL[v], fs[v], sr, 2.0); R += harm(phR[v], fs[v], sr, 2.0);
         }
         a.l[i] = (float)(level * env * L * 0.4); a.r[i] = (float)(level * env * R * 0.4);
@@ -76,10 +76,10 @@ inline Audio drums(double sec = 4, double sr = 48000, double level = 0.6, uint32
         double v;
         if (b % 2 == 0) {   // kick: a falling sine
             const double f = 50 + 120 * std::exp(-t / 0.03);
-            ph += 2 * lg::PI * f / sr;
+            ph += 2 * lg::kPi * f / sr;
             v = std::sin(ph) * std::exp(-t / 0.18) * std::min(1.0, t / 0.001);
         } else {            // snare: noise burst + 190 Hz body
-            ph += 2 * lg::PI * 190 / sr;
+            ph += 2 * lg::kPi * 190 / sr;
             v = (0.7 * rnd(seed) * std::exp(-t / 0.07) + 0.5 * std::sin(ph) * std::exp(-t / 0.05)) * std::min(1.0, t / 0.001);
         }
         a.l[i] = (float)(level * v); a.r[i] = (float)(level * v * 0.98);
@@ -96,8 +96,8 @@ inline Audio bass(double sec = 4, double sr = 48000, double level = 0.35) {
     for (size_t i = 0; i < a.size(); i++) {
         const size_t k = i / noteLen, j = i % noteLen;
         const double f = mtof(notes[k % 8]);
-        ph += 2 * lg::PI * f / sr;
-        if (ph > 2 * lg::PI * 1000) ph = std::fmod(ph, 2 * lg::PI);
+        ph += 2 * lg::kPi * f / sr;
+        if (ph > 2 * lg::kPi * 1000) ph = std::fmod(ph, 2 * lg::kPi);
         const double t = j / sr;
         double env = std::min(1.0, t / 0.005) * (0.6 + 0.4 * std::exp(-t / 0.15));
         if (j > noteLen - (size_t)(0.04 * sr)) env *= (noteLen - j) / (0.04 * sr);
@@ -114,7 +114,7 @@ inline Audio noise(double sec = 4, double sr = 48000, double level = 0.3, uint32
     bl.set(lg::Svf::BP, 2500, 0.7, 0, sr); br.set(lg::Svf::BP, 2500, 0.7, 0, sr);
     for (size_t i = 0; i < a.size(); i++) {
         const double t = i / sr;
-        const double env = 0.55 + 0.45 * std::sin(2 * lg::PI * 0.5 * t);
+        const double env = 0.55 + 0.45 * std::sin(2 * lg::kPi * 0.5 * t);
         a.l[i] = (float)(level * env * bl.tick(rnd(seed)));
         a.r[i] = (float)(level * env * br.tick(rnd(seed)));
     }
@@ -130,8 +130,8 @@ inline Audio pluck(double sec = 4, double sr = 48000, double level = 0.4) {
     for (size_t i = 0; i < a.size(); i++) {
         const size_t k = i / noteLen, j = i % noteLen;
         const double f = mtof(notes[k % 8]);
-        ph += 2 * lg::PI * f / sr;
-        if (ph > 2 * lg::PI * 1000) ph = std::fmod(ph, 2 * lg::PI);
+        ph += 2 * lg::kPi * f / sr;
+        if (ph > 2 * lg::kPi * 1000) ph = std::fmod(ph, 2 * lg::kPi);
         const double t = j / sr;
         const double env = std::min(1.0, t / 0.002) * std::exp(-t / 0.12);
         const double v = level * env * harm(ph, f, sr, 1.3) * 0.6;

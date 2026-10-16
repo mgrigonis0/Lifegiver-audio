@@ -119,7 +119,7 @@ static void testMeasures() {
     std::printf("measures\n");
     {
         Audio a = sig::empty(5, 48000);
-        for (size_t i = 0; i < a.size(); i++) { const float v = (float)(0.1 * std::sin(2 * PI * 997 * i / 48000.)); a.l[i] = v; a.r[i] = v; }
+        for (size_t i = 0; i < a.size(); i++) { const float v = (float)(0.1 * std::sin(2 * kPi * 997 * i / 48000.)); a.l[i] = v; a.r[i] = v; }
         std::vector<double> b;
         loudnessBlocks(a, b);
         const double l = integratedLoudness(b);
