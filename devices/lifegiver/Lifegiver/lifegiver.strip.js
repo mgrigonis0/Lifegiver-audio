@@ -1,5 +1,5 @@
 // lifegiver.strip.js - the whole Lifegiver device strip (jsui, Max 8 / ES5: no let, const, arrows, classes or
-// template strings). Drawn after the approved mockup v2 (Listen . Tone . Dynamics . Stage . Moves . Out, 1200 x 169).
+// template strings). Drawn after the approved mockup v2 (Listen . Tone . Dynamics . Stage . Moves . Out, 1116 x 169).
 //
 // in:  the Live parameters' values ("weight 2.5", "pan -0.3", "role 2", ...) and the engine's view messages (numbers):
 //        takes  <n> <s1> <s2> <s3> <s4> <capture state 0..3> <kept s> <busy>
@@ -27,8 +27,11 @@ var C = {
     out: [0.941, 0.541, 0.478], outPale: [0.965, 0.714, 0.671], range: [0.29, 0.639, 0.961], rangePale: [0.624, 0.816, 0.984],
     good: [0.498, 0.82, 0.659], warn: [0.953, 0.702, 0.42], ink: [0.06, 0.06, 0.07]
 };
-var Y = 4, H = 161;
-var SEC = { listen: [4, 118], knobs: [126, 262], stage: [392, 392], moves: [788, 248], out: [1040, 156] };
+// layout (1x): the device is DEVICE_W x 169; panels side by side, 4 px apart. Everything below derives from SEC.
+var Y = 4, H = 161, DEVICE_W = 1116;
+var SEC = { listen: [4, 96], knobs: [104, 204], stage: [312, 392], moves: [708, 280], out: [992, 120] };
+function ix(sec) { return SEC[sec][0] + 6; }
+function iw(sec) { return SEC[sec][1] - 12; }
 
 var KN = ["weight", "warm", "bite", "air", "texture", "punch", "tail", "steady"];
 var KL = ["Weight", "Warm", "Bite", "Air", "Texture", "Punch", "Tail", "Steady"];
@@ -38,7 +41,7 @@ var WORDS = [
     ["", "short", "medium", "long", "held"], ["", "jumpy", "lively", "even", "steady"]
 ];
 var ROLES = ["Lead", "Hook", "Support", "Rhythm", "Bass", "Bed", "FX"];
-var VARS = ["A", "B", "C", "D", "E"], VNAMES = ["Clean", "Rich", "Bold", "Vintage", "Tight"];
+var VARS = ["A", "B", "C", "D", "E"], VNAMES = ["Polish", "Warm", "Bold", "Vintage", "Driven"];   // rising character
 var MOVE = ["", "Lifting the lows", "Easing the low end", "Warming the low-mids", "Clearing low-mid mud",
     "Lifting presence", "Softening presence", "Lifting the air", "Darkening the top", "Tilting brighter", "Tilting darker",
     "Adding warm harmonics", "Adding edgy harmonics", "Steadying level", "Lowering what's between notes",
@@ -49,7 +52,7 @@ var NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 // the Live parameters (as last heard from them)
 var P = { weight: 0, warm: 0, bite: 0, air: 0, texture: 0, punch: 0, tail: 0, steady: 0,
     pan: 0, depth: 0.82, width: 0.35, edge: 0, lo: 60, hi: 20000, role: 0, fit: 0.5, amount: 100, clean: 40,
-    vara: 70, varb: 0, varc: 30, vard: 0, vare: 0 };
+    vara: 0, varb: 0, varc: 0, vard: 0, vare: 0 };
 var LIMITS = { pan: [-1, 1], depth: [0, 1], width: [0, 1], edge: [0, 1], lo: [20, 20000], hi: [20, 20000], fit: [0, 1],
     amount: [0, 100], clean: [0, 100], vara: [0, 100], varb: [0, 100], varc: [0, 100], vard: [0, 100], vare: [0, 100] };
 // what the engine said
@@ -60,6 +63,7 @@ for (var i0 = 0; i0 < 8; i0++) K.push({ word: 0, dots: 1, push: 0, adj: 0, reach
 var MV = [];
 var VR = [-1, -1, -1, -1, -1], SOLO = -1;
 var drag = null;
+var MPAGE = 0;   // which 5 Moves show (click the list's last line to page)
 
 // ------------------------------------------------------------------------------------------------- drawing helpers
 function col(c, a) { mgraphics.set_source_rgba(c[0], c[1], c[2], a === undefined ? 1 : a); }
@@ -108,7 +112,7 @@ function noteName(m) { if (m <= 0) return ""; var r = Math.round(m); return NOTE
 
 // ------------------------------------------------------------------------------------------------- paint
 function paint() {
-    box(0, 0, 1200, 169, 0, C.bg);
+    box(0, 0, DEVICE_W, 169, 0, C.bg);
     paintListen();
     paintKnobs();
     paintStage();
@@ -118,45 +122,46 @@ function paint() {
 
 function armLabel() {
     if (T.cap === 1) return "Play now\u2026";
-    if (T.cap === 2) return "Listening\u2026 " + T.kept.toFixed(1) + " s";
+    if (T.cap === 2) return "Listening " + T.kept.toFixed(1) + " s";
     return T.n >= 4 ? "Re-listen" : "Arm";
 }
+function armRect() { return [ix("listen"), 27, iw("listen"), 22]; }
+function takeRect(i) { var w = (iw("listen") - 2) / 2; return [ix("listen") + (i % 2) * (w + 2), 53 + Math.floor(i / 2) * 16, w, 14]; }
 
 function paintListen() {
     panel("listen");
-    header("listen", "LISTEN", C.listen, T.busy ? (F.valid ? "planning\u2026" : "reading\u2026") : "", C.listenPale);
-    var x = 10, w = 106, on = T.cap === 1 || T.cap === 2;
-    box(x, 27, w, 24, 12, on ? C.listen : C.panel);
-    frame(x, 27, w, 24, 12, C.listen);
-    text(armLabel(), x + w / 2, 43, 11, on ? [0.16, 0.06, 0.06] : C.listenPale, true, 1);
+    header("listen", "LISTEN", C.listen, T.busy ? "\u2026" : "", C.listenPale);
+    var r = armRect(), on = T.cap === 1 || T.cap === 2;
+    box(r[0], r[1], r[2], r[3], 11, on ? C.listen : C.panel);
+    frame(r[0], r[1], r[2], r[3], 11, C.listen);
+    text(armLabel(), r[0] + r[2] / 2, r[1] + 15, 10, on ? [0.16, 0.06, 0.06] : C.listenPale, true, 1, r[2] - 6);
     for (var i = 0; i < 4; i++) {
-        var r = takeRect(i), has = i < T.n;
-        box(r[0], r[1], r[2], r[3], 2, has ? [0.227, 0.145, 0.149] : [0.165, 0.165, 0.165]);
-        text(has ? "Take " + (i + 1) + "  x" : "\u2014", r[0] + r[2] / 2, r[1] + 10.5, 8, has ? C.listenPale : [0.33, 0.33, 0.33], false, 1);
+        var t = takeRect(i), has = i < T.n;
+        box(t[0], t[1], t[2], t[3], 2, has ? [0.227, 0.145, 0.149] : [0.165, 0.165, 0.165]);
+        text(has ? "Take " + (i + 1) + " x" : "\u2014", t[0] + t[2] / 2, t[1] + 10.5, 7.5, has ? C.listenPale : [0.33, 0.33, 0.33], false, 1, t[2] - 2);
     }
-    var L = factLines();
-    for (var k = 0; k < L.length; k++) text(L[k], x, 101 + k * 11.5, 8.5, C.dim, false, 0, w);
-    if (F.valid && T.cap === 0) dots(x + tw(L[L.length - 1]) + 5, 98 + (L.length - 1) * 11.5, F.dots, C.dim);
+    var L = factLines(), x = ix("listen"), w = iw("listen");
+    for (var k = 0; k < L.length; k++) text(L[k], x, 98 + k * 11, 8, C.dim, false, 0, w);
+    if (F.valid && T.cap === 0) dots(x + Math.min(tw(L[L.length - 1]), w - 14) + 5, 95 + (L.length - 1) * 11, F.dots, C.dim);
 }
 
-function takeRect(i) { return [10 + (i % 2) * 54, 55 + Math.floor(i / 2) * 16, 52, 14]; }
-
 function factLines() {
-    if (T.cap === 1) return ["Play the sound now.", "It starts at the first", "sound you play."];
-    if (T.cap === 2) return ["Keep playing.", "Stops by itself after", "about 4 s of sound."];
-    if (!F.valid) return ["No takes yet.", "Press Arm, then play."];
+    if (T.cap === 1) return ["Play the sound.", "It starts at the", "first sound."];
+    if (T.cap === 2) return ["Keep playing.", "Stops by itself", "after ~4 s."];
+    if (!F.valid) return ["No takes yet.", "Press Arm,", "then play."];
     var a = [];
-    var pitch = F.lo > 0 ? (noteName(F.lo) === noteName(F.hi) ? noteName(F.lo) : noteName(F.lo) + "\u2013" + noteName(F.hi)) : "no stable pitch";
+    var pitch = F.lo > 0 ? (noteName(F.lo) === noteName(F.hi) ? noteName(F.lo) : noteName(F.lo) + "\u2013" + noteName(F.hi)) : "no pitch";
     a.push((F.live > 0 ? F.live + " take" + (F.live > 1 ? "s" : "") : "saved") + " \u00b7 " + pitch);
-    a.push(["noisy", "partly pitched", "harmonic"][F.harm] + " \u00b7 " + ["plucked", "medium decay", "sustained"][F.sus]);
-    a.push("stereo " + F.corr.toFixed(1) + (F.live === 0 ? " \u00b7 re-listen to refine" : ""));
+    a.push(["noisy", "part pitched", "harmonic"][F.harm]);
+    a.push(["plucked", "medium decay", "sustained"][F.sus] + " \u00b7 st " + F.corr.toFixed(1));
+    if (F.live === 0) a.push("re-listen to refine");
     a.push(["unsure", "unsure", "fairly sure", "sure"][F.dots]);
     return a;
 }
 
 function knobCell(i) {
-    var cw = 250 / 4;
-    return { x: 132 + cw * (i % 4), y: 27 + Math.floor(i / 4) * 67, w: cw, h: 65 };
+    var cw = iw("knobs") / 4;
+    return { x: ix("knobs") + cw * (i % 4), y: 27 + Math.floor(i / 4) * 67, w: cw, h: 65 };
 }
 
 function paintKnob(cx, cy, val, stagePush, c, active) {
@@ -170,36 +175,34 @@ function paintKnob(cx, cy, val, stagePush, c, active) {
 
 function paintKnobs() {
     panel("knobs");
-    var x = SEC.knobs[0] + 6;
+    var x = ix("knobs"), w = iw("knobs");
     text("TONE", x, Y + 14, 10, C.tone, true, 0);
     var tws = tw("TONE");
     text(" \u00b7 ", x + tws, Y + 14, 10, [0.33, 0.33, 0.33], true, 0);
     text("DYNAMICS", x + tws + tw(" \u00b7 "), Y + 14, 10, C.dyn, true, 0);
-    // the legend: a teal arc = what the stage asks
-    var lx = SEC.knobs[0] + SEC.knobs[1] - 6;
-    text("stage", lx, Y + 14, 8.5, C.stage, false, 2);
-    arc(lx - tw("stage") - 6, Y + 13, 4.5, -90, 0, C.stage, 1.4);
-    box(x, Y + 18, 125, 2, 0, C.tone, 0.6);
-    box(x + 125, Y + 18, 125, 2, 0, C.dyn, 0.6);
+    box(x, Y + 18, w / 2, 2, 0, C.tone, 0.6);
+    box(x + w / 2, Y + 18, w / 2, 2, 0, C.dyn, 0.6);
     var ready = F.valid;
     for (var i = 0; i < 8; i++) {
         var c = knobCell(i), cx = c.x + c.w / 2, k = K[i], active = ready && k.adj;
         var alpha = ready ? (k.adj ? 1 : 0.45) : 0.3;
-        text(KL[i], cx, c.y + 9, 9.5, [0.86, 0.86, 0.86], true, 1, c.w - 2, alpha);
+        text(KL[i], cx, c.y + 9, 9, [0.86, 0.86, 0.86], true, 1, c.w - 2, alpha);
         paintKnob(cx, c.y + 31, P[KN[i]], k.push, i < 5 ? C.tone : C.dyn, active);
         text(P[KN[i]] === 0 ? "0" : sgn(P[KN[i]]), cx, c.y + 53, 9, C.bright, false, 1, c.w, alpha);
-        // the reading in a word, and how sure (dots); the stage's ask is the teal arc on the ring
+        // the reading in a word, and how sure (dots); the stage's and the characters' ask is the teal arc
         if (!ready) continue;
         var sub = k.word ? WORDS[i][k.word] : "\u2014";
         font(7.5, false);
-        var sw = Math.min(tw(sub), c.w - 20), sx = cx - (sw + 14) / 2;
-        text(sub, sx, c.y + 63, 7.5, C.dim, false, 0, c.w - 20, alpha);
-        dots(sx + sw + 4, c.y + 60.5, k.adj ? k.dots : 0, C.dim);
+        var sw = Math.min(tw(sub), c.w - 16), sx = cx - (sw + (k.adj ? 14 : 0)) / 2;
+        text(sub, sx, c.y + 63, 7.5, C.dim, false, 0, c.w - 16, alpha);
+        if (k.adj) dots(sx + sw + 4, c.y + 60.5, k.dots, C.dim);
     }
 }
 
 // ---- stage geometry (the mockup's): local coordinates of the 268 x 107 stage
-var SX = 452, SY = 27, SW = 268, SH = 107, RX = 724, RW = 54;
+var SW = 268, SH = 107, RW = 54, SY = 27;
+function stageX() { return ix("stage") + 54; }
+function rangeX() { return stageX() + SW + 4; }
 function geom() {
     var depth = P.depth, scale = 0.62 + 0.38 * depth, cy = 18 + depth * 70, half = 76 + 54 * depth;
     var cx = 134 + P.pan * half * 0.8;
@@ -208,7 +211,7 @@ function geom() {
 function hzToY(hz) { return 103 - (Math.log(hz) / Math.LN10 - Math.log(20) / Math.LN10) / 3 * 99; }
 function yToHz(y) { return Math.pow(10, Math.log(20) / Math.LN10 + (103 - y) / 99 * 3); }
 
-function stagePath(g) {
+function stagePath(g, SX) {
     mgraphics.new_path();
     var N = 36;
     for (var i = 0; i <= N; i++) {
@@ -233,11 +236,11 @@ function paintStage() {
     panel("stage");
     var panTxt = Math.abs(P.pan) < 0.05 ? "C" : (P.pan < 0 ? "L" : "R") + Math.round(Math.abs(P.pan) * 100);
     header("stage", "STAGE", C.stage, ROLES[P.role] + " \u00b7 " + panTxt + " \u00b7 " + (P.depth > 0.66 ? "front" : (P.depth < 0.33 ? "back" : "middle")));
-    var a = F.valid ? 1 : 0.3;
+    var a = F.valid ? 1 : 0.3, x0 = ix("stage"), SX = stageX(), RX = rangeX();
     for (var r = 0; r < 7; r++) {
         var on = P.role === r;
-        box(398, 27 + r * 15, 50, 13, 2, on ? C.stage : [0.2, 0.2, 0.2], a);
-        text(ROLES[r], 423, 27 + r * 15 + 9.5, 8.5, on ? [0.063, 0.125, 0.122] : [0.74, 0.74, 0.74], true, 1, 48, a);
+        box(x0, 27 + r * 15, 50, 13, 2, on ? C.stage : [0.2, 0.2, 0.2], a);
+        text(ROLES[r], x0 + 25, 27 + r * 15 + 9.5, 8.5, on ? [0.063, 0.125, 0.122] : [0.74, 0.74, 0.74], true, 1, 48, a);
     }
     // the stage, seen from above: back wall at the top, the listener at the bottom
     col(C.floor, a);
@@ -256,14 +259,13 @@ function paintStage() {
     text("L", SX + 8, SY + 100, 6, [0.37, 0.37, 0.37], false, 0, 0, a);
     text("R", SX + 256, SY + 100, 6, [0.37, 0.37, 0.37], false, 0, 0, a);
     var g = geom();
-    stagePath(g);
+    stagePath(g, SX);
     col(C.stage, (0.3 + 0.5 * P.depth) * a);
     mgraphics.fill_preserve();
     col(C.stagePale, a); mgraphics.set_line_width(1); mgraphics.stroke();
     dot(SX + g.cx, SY + g.cy, 1.6, [0.91, 1, 0.99], a);
     var top = g.cy - g.ry * (1 + P.edge * 0.3), edgeY = top - 5 - P.edge * 14;
     line(SX + g.cx, SY + top, SX + g.cx, SY + edgeY, C.stagePale, 0.7, a);
-    // edge handle (a diamond), width handles
     col(C.floor, a);
     mgraphics.new_path();
     mgraphics.move_to(SX + g.cx, SY + edgeY - 4); mgraphics.line_to(SX + g.cx + 4, SY + edgeY);
@@ -283,7 +285,7 @@ function paintStage() {
     box(RX + 17, SY + rb - 2, 17, 4, 1.5, C.floor, a); frame(RX + 17, SY + rb - 2, 17, 4, 1.5, C.rangePale, a);
     text(fmtHz(P.hi), RX + 36, SY + rt + 2.5, 6.5, [0.81, 0.9, 0.98], false, 0, 0, a);
     text(fmtHz(P.lo), RX + 36, SY + rb + 2.5, 6.5, [0.81, 0.9, 0.98], false, 0, 0, a);
-    text(stageWords(), 398, SY + SH + 11, 8.5, [0.66, 0.66, 0.66], false, 0, 380, a);
+    text(stageWords(), x0, SY + SH + 11, 8.5, [0.66, 0.66, 0.66], false, 0, iw("stage"), a);
     if (!F.valid) text("Listen first", SEC.stage[0] + SEC.stage[1] / 2, Y + 62, 12, C.listen, true, 1);
 }
 
@@ -304,62 +306,69 @@ function moveResult(m) {
     if (m[0] === 24 || m[0] === 25) return sgn(m[1]) + " dB";
     return "";
 }
+function movePages() { return Math.max(1, Math.ceil(MV.length / 5)); }
+function varCell(v) { var cw = (iw("moves") - 12) / 5; return { x: ix("moves") + v * (cw + 3), w: cw }; }
 
 function paintMoves() {
     panel("moves");
     var right = F.reach >= 0 && F.valid ? (F.reach >= 0.9 ? "hits the goal" : "reaches " + Math.round(F.reach * 100) + " %") : "";
     header("moves", "MOVES", C.moves, right, F.reach >= 0.9 ? C.good : C.warn);
-    var x = SEC.moves[0] + 6, w = SEC.moves[1] - 12, a = F.valid ? 1 : 0.3;
-    var n = Math.min(MV.length, 5);
-    for (var i = 0; i < n; i++) {
-        var y = 27 + i * 13, res = moveResult(MV[i]);
+    var x = ix("moves"), w = iw("moves"), a = F.valid ? 1 : 0.3;
+    if (MPAGE >= movePages()) MPAGE = 0;
+    for (var i = 0; i < 5; i++) {
+        var j = MPAGE * 5 + i;
+        if (j >= MV.length) break;
+        var y = 27 + i * 13, res = moveResult(MV[j]);
         font(8.5, false);
         var rw = tw(res);
-        text(moveText(MV[i]), x, y + 9, 8.5, [0.86, 0.86, 0.86], false, 0, w - rw - 6, a);
+        text(moveText(MV[j]), x, y + 9, 8.5, [0.86, 0.86, 0.86], false, 0, w - rw - 6, a);
         text(res, x + w, y + 9, 8.5, C.moves, false, 2, 0, a);
         box(x, y + 12, w, 1, 0, [0.17, 0.17, 0.17], a);
     }
     if (!F.valid) text("Moves appear after Listen.", x, 36, 8.5, C.dim, false, 0, w);
     else if (!MV.length) text(T.busy ? "Planning on your takes\u2026" : "Nothing to do: it already fits.", x, 36, 8.5, C.dim, false, 0, w);
-    text(MV.length > 5 ? "+" + (MV.length - 5) + " more" : "", x, 98, 8, [0.48, 0.48, 0.48], false, 0, w, a);
-    var cw = (w - 12) / 5;
-    for (var v = 0; v < 5; v++) {
-        var vx = x + v * (cw + 3), pct = P["var" + "abcde".charAt(v)], solo = SOLO === v;
-        box(vx, 102, cw, 15, 2, pct > 0 ? C.moves : [0.2, 0.2, 0.2], a);
-        if (solo) frame(vx, 102, cw, 15, 2, C.movesPale, a, 1.5);
-        text(VARS[v], vx + cw / 2, 113, 9, pct > 0 ? [0.106, 0.082, 0.188] : [0.74, 0.74, 0.74], true, 1, 0, a);
-        box(vx, 120, cw, 6, 3, C.well, a);
-        if (pct > 0) box(vx, 120, cw * pct / 100, 6, 3, C.moves, a);
-        text(solo ? "solo" : Math.round(pct) + " %", vx + cw / 2, 135, 7.5, [0.6, 0.6, 0.6], false, 1, cw, a);
-        if (VR[v] >= 0) text(VR[v] >= 0.9 ? "hits" : Math.round(VR[v] * 100) + " %", vx + cw / 2, 146, 7, VR[v] >= 0.9 ? C.good : C.warn, false, 1, cw, a);
-        text(VNAMES[v], vx + cw / 2, 157, 7, [0.45, 0.45, 0.45], false, 1, cw, a);
+    if (movePages() > 1) {
+        text("page " + (MPAGE + 1) + " of " + movePages() + "  \u00b7  click for more \u203a", x + w, 97, 8, C.movesPale, false, 2, w);
     }
+    for (var v = 0; v < 5; v++) {
+        var c = varCell(v), pct = P["var" + "abcde".charAt(v)], solo = SOLO === v;
+        box(c.x, 102, c.w, 15, 2, pct > 0 ? C.moves : [0.2, 0.2, 0.2], a);
+        if (solo) frame(c.x, 102, c.w, 15, 2, C.movesPale, a, 1.5);
+        text(VARS[v] + "  " + VNAMES[v], c.x + c.w / 2, 113, 8, pct > 0 ? [0.106, 0.082, 0.188] : [0.74, 0.74, 0.74], true, 1, c.w - 2, a);
+        box(c.x, 120, c.w, 6, 3, C.well, a);
+        if (pct > 0) box(c.x, 120, c.w * pct / 100, 6, 3, C.moves, a);
+        text(solo ? "solo" : Math.round(pct) + " %", c.x + c.w / 2, 136, 7.5, [0.6, 0.6, 0.6], false, 1, c.w, a);
+        if (VR[v] >= 0) text(VR[v] >= 0.9 ? "hits" : "reaches " + Math.round(VR[v] * 100) + "%", c.x + c.w / 2, 147, 7, VR[v] >= 0.9 ? C.good : C.warn, false, 1, c.w, a);
+    }
+    text("A subtle \u2026 E strong \u00b7 all at 0 = no character", x + w / 2, 158, 7, [0.45, 0.45, 0.45], false, 1, w, a);
 }
 
-function outKnob(i) { return { cx: 1046 + 36 + i * 72, cy: 81, name: i ? "Clean" : "Amount", p: i ? "clean" : "amount" }; }
+function outKnob(i) { var x = ix("out"), w = iw("out"); return { cx: x + w * (i ? 0.75 : 0.25), cy: 81, name: i ? "Clean" : "Amount", p: i ? "clean" : "amount" }; }
+function fitRect() { return [ix("out"), 34, iw("out"), 16]; }
+function compareRect() { return [ix("out"), 120, iw("out"), 18]; }
 
 function paintOut() {
     panel("out");
     header("out", "OUT", C.out);
-    var x = 1046, w = 144;
-    text("Identity", x, 36, 8.5, [0.74, 0.74, 0.74], false, 0);
-    text("Fit", x + w, 36, 8.5, [0.74, 0.74, 0.74], false, 2);
+    var x = ix("out"), w = iw("out");
+    text("Identity", x, 36, 8, [0.74, 0.74, 0.74], false, 0);
+    text("Fit", x + w, 36, 8, [0.74, 0.74, 0.74], false, 2);
     box(x, 40, w, 6, 3, C.well);
     box(x + P.fit * w - 2, 38, 4, 10, 2, C.out);
     for (var i = 0; i < 2; i++) {
         var k = outKnob(i), v = P[k.p], ang = -135 + 270 * v / 100;
-        text(k.name, k.cx, 63, 9.5, [0.86, 0.86, 0.86], true, 1);
+        text(k.name, k.cx, 63, 9, [0.86, 0.86, 0.86], true, 1);
         arc(k.cx, k.cy + 4, 11.5, -135, 135, C.track, 3);
         arc(k.cx, k.cy + 4, 11.5, -135, ang, C.out, 3);
         var aa = rad(ang);
         line(k.cx, k.cy + 4, k.cx + 9 * Math.cos(aa), k.cy + 4 + 9 * Math.sin(aa), C.bright, 1.6);
         text(Math.round(v) + " %", k.cx, k.cy + 28, 9, C.bright, false, 1);
     }
-    var on = F.compare;
-    box(x, 120, w, 18, 9, on ? C.out : C.panel);
-    frame(x, 120, w, 18, 9, C.out);
-    text(on ? "Hearing: before" : "Compare", x + w / 2, 132.5, 9.5, on ? [0.165, 0.078, 0.067] : C.outPale, true, 1);
-    text("before is level-matched", x + w / 2, 152, 7.5, C.dim, false, 1);
+    var on = F.compare, r = compareRect();
+    box(r[0], r[1], r[2], r[3], 9, on ? C.out : C.panel);
+    frame(r[0], r[1], r[2], r[3], 9, C.out);
+    text(on ? "Hearing: before" : "Compare", x + w / 2, 132.5, 9, on ? [0.165, 0.078, 0.067] : C.outPale, true, 1, w - 6);
+    text("level-matched", x + w / 2, 152, 7.5, C.dim, false, 1);
 }
 
 // ------------------------------------------------------------------------------------------------- input
@@ -371,11 +380,12 @@ function setP(name, v) {
     outlet(0, "p", name, v);
     mgraphics.redraw();
 }
+function outKnobHit(x, y, o) { var ok = outKnob(o); return Math.abs(x - ok.cx) < iw("out") / 4 && y >= 54 && y < 116; }
 
 function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
     drag = null;
     // Listen
-    if (inRect(x, y, [10, 27, 106, 24])) { outlet(0, "arm"); return; }
+    if (inRect(x, y, armRect())) { outlet(0, "arm"); return; }
     for (var i = 0; i < 4; i++) if (inRect(x, y, takeRect(i)) && i < T.n) { outlet(0, "removetake", i); return; }
     // knobs (vertical drag, like Live's; shift = fine)
     for (var k = 0; k < 8; k++) {
@@ -384,35 +394,35 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
     }
     if (F.valid) {
         // roles
-        for (var r = 0; r < 7; r++) if (inRect(x, y, [398, 27 + r * 15, 50, 13])) { outlet(0, "pickrole", r); return; }
+        for (var r = 0; r < 7; r++) if (inRect(x, y, [ix("stage"), 27 + r * 15, 50, 13])) { outlet(0, "pickrole", r); return; }
         // stage handles, then the shape itself
-        var g = geom(), lx = x - SX, ly = y - SY;
+        var SX = stageX(), RX = rangeX(), g = geom(), lx = x - SX, ly = y - SY;
         var top = g.cy - g.ry * (1 + P.edge * 0.3), edgeY = top - 5 - P.edge * 14;
         if (Math.abs(lx - g.cx) <= 5 && Math.abs(ly - edgeY) <= 5) { drag = { kind: "edge" }; return; }
         if (Math.abs(ly - g.cy) <= 5 && (Math.abs(lx - (g.cx - g.rx)) <= 5 || Math.abs(lx - (g.cx + g.rx)) <= 5)) { drag = { kind: "width" }; return; }
         if (lx >= 0 && lx < SW && ly >= 0 && ly < SH) { drag = { kind: "move" }; ondrag(x, y, 1); return; }
-        // range handles: the nearer one
         if (x >= RX && x < RX + RW && y >= SY && y < SY + SH) {
             var dh = Math.abs(ly - hzToY(P.hi)), dl = Math.abs(ly - hzToY(P.lo));
             drag = { kind: dh < dl ? "hi" : "lo" };
             ondrag(x, y, 1);
             return;
         }
-        // variations: the letter auditions it alone (Solo), the bar sets its strength
-        var mx = SEC.moves[0] + 6, mw = SEC.moves[1] - 12, cw = (mw - 12) / 5;
+        // Moves: the list pages through when there are more than fit
+        if (inRect(x, y, [ix("moves"), 27, iw("moves"), 74]) && movePages() > 1) { MPAGE = (MPAGE + 1) % movePages(); mgraphics.redraw(); return; }
+        // characters: the letter auditions it alone (Solo), the bar sets its strength
         for (var v = 0; v < 5; v++) {
-            var vx = mx + v * (cw + 3);
-            if (inRect(x, y, [vx, 102, cw, 15])) { outlet(0, "solo", v); return; }
-            if (inRect(x, y, [vx, 117, cw, 12])) { drag = { kind: "bar", name: "var" + "abcde".charAt(v), x0: vx, w: cw, scale: 100, step: 5 }; ondrag(x, y, 1); return; }
+            var vc = varCell(v);
+            if (inRect(x, y, [vc.x, 102, vc.w, 15])) { outlet(0, "solo", v); return; }
+            if (inRect(x, y, [vc.x, 117, vc.w, 12])) { drag = { kind: "bar", name: "var" + "abcde".charAt(v), x0: vc.x, w: vc.w, scale: 100, step: 5 }; ondrag(x, y, 1); return; }
         }
     }
     // out
-    if (inRect(x, y, [1046, 34, 144, 16])) { drag = { kind: "bar", name: "fit", x0: 1046, w: 144, scale: 1, step: 0 }; ondrag(x, y, 1); return; }
+    var fr = fitRect();
+    if (inRect(x, y, fr)) { drag = { kind: "bar", name: "fit", x0: fr[0], w: fr[2], scale: 1, step: 0 }; ondrag(x, y, 1); return; }
     for (var o = 0; o < 2; o++) {
-        var ok = outKnob(o);
-        if (Math.abs(x - ok.cx) < 30 && y >= 54 && y < 116) { drag = { kind: "knob", name: ok.p, y0: y, v0: P[ok.p], lo: 0, hi: 100, per: 0.6 }; return; }
+        if (outKnobHit(x, y, o)) { var ok = outKnob(o); drag = { kind: "knob", name: ok.p, y0: y, v0: P[ok.p], lo: 0, hi: 100, per: 0.6 }; return; }
     }
-    if (inRect(x, y, [1046, 120, 144, 18])) { outlet(0, "compare", F.compare ? 0 : 1); return; }
+    if (inRect(x, y, compareRect())) { outlet(0, "compare", F.compare ? 0 : 1); return; }
 }
 
 function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
@@ -431,7 +441,7 @@ function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
         setP(d.name, f);
         return;
     }
-    var lx = x - SX, ly = y - SY, g = geom();
+    var lx = x - stageX(), ly = y - SY, g = geom();
     if (d.kind === "move") {
         var depth = clamp((ly - 18) / 70, 0, 1), half = 76 + 54 * depth;
         P.depth = depth;
@@ -445,9 +455,8 @@ function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
 
 function ondblclick(x, y) {
     for (var k = 0; k < 8; k++) { var c = knobCell(k); if (inRect(x, y, [c.x, c.y, c.w, c.h]) && F.valid) { setP(KN[k], 0); return; } }
-    for (var o = 0; o < 2; o++) { var ok = outKnob(o); if (Math.abs(x - ok.cx) < 30 && y >= 54 && y < 116) { setP(ok.p, o ? 40 : 100); return; } }
+    for (var o = 0; o < 2; o++) if (outKnobHit(x, y, o)) { setP(outKnob(o).p, o ? 40 : 100); return; }
 }
-
 // ------------------------------------------------------------------------------------------------- messages
 function anything() {
     var a = arrayfromargs(arguments), m = messagename;
@@ -465,6 +474,7 @@ function anything() {
             K[k] = { word: clamp(a[6 * k] | 0, 0, 4), dots: clamp(a[6 * k + 1] | 0, 1, 3), push: a[6 * k + 2], adj: a[6 * k + 3] | 0, reached: a[6 * k + 4], asked: a[6 * k + 5] };
     } else if (m === "moves") {
         MV = [];
+        MPAGE = 0;
         for (var j = 0; j + 4 < a.length; j += 5) MV.push([a[j] | 0, a[j + 1], a[j + 2] | 0, a[j + 3], a[j + 4]]);
     } else if (m === "vars") {
         for (var v = 0; v < 5; v++) VR[v] = a.length > v ? a[v] : -1;

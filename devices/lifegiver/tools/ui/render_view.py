@@ -42,7 +42,7 @@ def rounded(cr, x, y, w, h, ow, oh):
 def main():
     ops = json.load(open(sys.argv[1]))
     scale = float(sys.argv[3]) if len(sys.argv) > 3 else 2.0
-    w, h = 1200, 169
+    w, h = int(sys.argv[4]) if len(sys.argv) > 4 else 1116, 169
     surf = cairo.cairo_image_surface_create(0, int(w * scale), int(h * scale))
     cr = cairo.cairo_create(surf)
     cairo.cairo_scale(cr, scale, scale)

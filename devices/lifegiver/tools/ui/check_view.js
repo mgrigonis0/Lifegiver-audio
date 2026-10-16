@@ -33,7 +33,7 @@ expect(!/[^\x00-\x7f]/.test(src), "plain ASCII (non-ASCII text is written as \\u
 // ---- a mock Max: mgraphics records every call
 function makeMax() {
     const ops = [], sent = [];
-    const mg = { size: [1200, 169], relative_coords: 0, autofill: 0, _font: 10 };
+    const mg = { size: [1116, 169], relative_coords: 0, autofill: 0, _font: 10 };
     const rec = name => (...a) => { ops.push([name, ...a]); };
     for (const f of ["init", "set_source_rgba", "rectangle", "rectangle_rounded", "fill", "fill_preserve", "stroke", "stroke_preserve",
         "set_line_width", "move_to", "line_to", "arc", "close_path", "new_path", "show_text", "select_font_face", "redraw", "set_line_cap"])
@@ -83,27 +83,34 @@ expect(!ready.some(o => o[0] === "show_text" && /undefined|NaN/.test(o[1])), "no
 // interactions
 function click(x, y) { m.sent.length = 0; m.ctx.onclick(x, y, 1, 0, 0, 0, 0, 0); return m.sent.slice(); }
 function dragTo(x, y) { m.ctx.ondrag(x, y, 1, 0, 0, 0, 0, 0); return m.sent.slice(); }
-expect(click(60, 38).join() === "arm", "Arm sends arm");
-expect(click(30, 60).join() === "removetake 0", "Take 1 x removes take 1");
-click(132 + 62.5 * 2 + 30, 27 + 30);
-const kd = dragTo(132 + 62.5 * 2 + 30, 27 + 30 - 25);
+const X = m.ctx;
+const ar = X.armRect(), t0 = X.takeRect(0), kc = X.knobCell(2), vc = X.varCell(0), fr = X.fitRect(), cr = X.compareRect();
+expect(click(ar[0] + 20, ar[1] + 8).join() === "arm", "Arm sends arm");
+expect(click(t0[0] + 10, t0[1] + 5).join() === "removetake 0", "Take 1 x removes take 1");
+click(kc.x + kc.w / 2, kc.y + 30);
+const kd = dragTo(kc.x + kc.w / 2, kc.y + 30 - 25);
 expect(kd.length > 0 && /^p bite 5/.test(kd[kd.length - 1]), "dragging the Bite knob up 25 px sets Bite +5 (Live parameter)");
 m.ctx.ondrag(0, 0, 0);
-expect(click(423, 27 + 5 * 15 + 6).join() === "pickrole 5", "the Bed button picks the role (its stage preset comes from the engine)");
-const sv = click(452 + 134, 27 + 18 + 0.2 * 70);
+expect(click(X.ix("stage") + 25, 27 + 5 * 15 + 6).join() === "pickrole 5", "the Bed button picks the role (its stage preset comes from the engine)");
+const sv = click(X.stageX() + 134, 27 + 18 + 0.2 * 70);
 expect(sv.some(s => /^p depth 0\.2/.test(s)) && sv.some(s => /^p pan 0$/.test(s)), "clicking the stage floor moves the sound there (depth, pan)");
 m.ctx.ondrag(0, 0, 0);
-const vx = 794 + 0 * ((236 - 12) / 5 + 3);
-expect(click(vx + 10, 108).join() === "solo 0", "the A button auditions A alone");
-const bar = click(vx + (236 - 12) / 5 / 2, 122);
+expect(click(vc.x + 10, 108).join() === "solo 0", "the A button auditions A alone");
+const bar = click(vc.x + vc.w / 2, 122);
 expect(bar.some(s => /^p vara 50/.test(s)), "the A bar sets A's strength (halfway = 50 %)");
 m.ctx.ondrag(0, 0, 0);
-expect(click(1100, 128).join() === "compare 1", "Compare toggles");
-m.ctx.ondblclick(132 + 62.5 * 2 + 30, 27 + 30);
+expect(click(cr[0] + 20, cr[1] + 8).join() === "compare 1", "Compare toggles");
+m.ctx.ondblclick(kc.x + kc.w / 2, kc.y + 30);
 expect(m.sent.some(s => s === "p bite 0"), "double-click resets a knob to 0");
-const fit = click(1046 + 143.5, 42);
-expect(fit.some(s => /^p fit 0\.99/.test(s)), "Identity ↔ Fit bar: the right end is Fit");
+const fit = click(fr[0] + fr[2] - 0.5, 42);
+expect(fit.some(s => /^p fit 0\.99/.test(s)), "Identity <-> Fit bar: the right end is Fit");
 m.ctx.ondrag(0, 0, 0);
+// Moves: 7 moves = 2 pages; a click on the list shows the next page
+const before = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+click(X.ix("moves") + 20, 40);
+const after = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+expect(/page 1 of 2/.test(before) && /page 2 of 2/.test(after) && /Level matched/.test(after), "Moves pages: a click shows the rest");
+expect(!paintOps(m).some(o => (o[0] === "move_to" || o[0] === "rectangle_rounded" || o[0] === "rectangle") && o[1] > 1116.01), "nothing drawn beyond the device width (1116 px)");
 
 console.log(failures ? `\n${failures} FAILED` : "\nview: all passed");
 process.exit(failures ? 1 : 0);
