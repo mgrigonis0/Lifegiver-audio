@@ -12,14 +12,14 @@ console shows what it does and the measured result. An assistant, not an autopil
 - **Phase 0 done:** mockup v2 approved ("good for a first go"): device strip at real 169 px (Listen → Tone · Dynamics
   → Stage → Moves → Out, ~1200 px wide, all in the strip) + Moves pop-out window.
   https://claude.ai/artifact/W62NjUfMmqUUmjdp4ap7Fv (Design canvas, private to the user; v1 kept as history).
-- **Phase 1, build 2026-10-15c** (pushed, CI green, release `lifegiver-latest`): stereo pass-through, Amount (Live
+- **Phase 1, build 2026-10-15e** (pushed, CI green, release `lifegiver-latest`): stereo pass-through, Amount (Live
   parameter), version printed by engine and patch, saved state (device id), offline tests all pass, 0 warnings.
-- **Verified in Live:** loads, both version lines, Amount click-free, two devices get their own ids.
-- **Saving does NOT work yet** (Live tests 1–3: every reopen says "new device"). The 15c trace shows:
-  - during the session the hidden `[pattr state]` holds the 34-number list (it echoes it back after each save);
-  - after reopening, the pattr answers its **initial value `0`** (at 0, ~300, ~800 ms) and the unnamed
-    `dict @parameter_enable 1` answers **nothing**; no store ever outputs a restored value later.
-  - So Live does not restore the stored value at all; timing and the codec are ruled out.
+- **Verified in Live:** loads, both version lines, Amount click-free and saved (37 % came back), two devices get their
+  own ids, and **saving works** (15e: after reopen both devices said `state restored from the pattr` with their own
+  ids; both stores answered at 0 ms).
+- Cause of the 15a–15d failures: the generator put `parameter_enable` on the box only; for a pattr/dict it must be in
+  `saved_object_attributes` (CONVENTIONS "Saving in the Live set"). Found by reading the set file: Live had stored an
+  empty blob. 15d's Initial Enable change was not the cause (kept off: it is part of the proven combination).
 - Docs: `DESIGN.md`, `BUILD_PLAN.md`, `RESEARCH.md`, `REVIEW.md`, `design/ui-reference/` (UI style the user likes).
 
 ## Structure
@@ -33,14 +33,14 @@ console shows what it does and the measured result. An assistant, not an autopil
 - `INSTALL.md`; CI `.github/workflows/lifegiver.yml` (tests + generator on Linux → universal mac build → release).
 - Save flow: lifegiver~ "getstate" → `t b b` → bang [pattr state] (→ `prepend statelist` → lifegiver~) and the
   unnamed [dict] (→ "dictionary <name>" → lifegiver~). "statelist <numbers>" → [route] → pattr, and
-  `prepend replace state` → dict. Both hidden params: type 3, Stored Only, **initial enable 1, initial 0** (suspect).
+  `prepend replace state` → dict. Both hidden params: type 3, Stored Only, no initial value, parameter mode in `saved_object_attributes`.
 
 ## Parameters (Phase 1)
 | Name | Range | Purpose |
 |---|---|---|
 | Amount | 0–100 % (init 100) | Blend: 0 % = the input bit for bit; 100 % = full plan (now: unity) |
 | State | hidden blob (pattr) | Saved state as a number list (format, device id, saving build) |
-| State Dict | hidden (unnamed dict) | Same list under key "state"; second route while saving is unproven |
+| State Dict | hidden (unnamed dict) | Same list under key "state"; works too, to be removed (one store is enough) |
 
 ## Decisions (and why)
 - Design-level: assistant not autopilot; role by button only; knobs relative, never moved by the stage (stage arc);
@@ -56,22 +56,16 @@ console shows what it does and the measured result. An assistant, not an autopil
 
 ## Rejected approaches
 DESIGN.md §16 for design. Build-level: a dict name in the pattr (15a: only the name is saved); a fixed-name or `---`
-dict (global/crosstalk, or renamed on reload); knob values through the command ring; gen~.
+dict (global/crosstalk, or renamed on reload); `parameter_enable` on the box only for a pattr/dict (15a–15d: ignored,
+empty blob saved); knob values through the command ring; gen~.
 
 ## Known issues
-- Saving (above). Wanderer's State pattr has the same initial-enable setting, so it is probably affected too (another
-  chat is fixing Wanderer; CONVENTIONS "Saving in the Live set" holds what is known).
+- Wanderer's State pattr has the same mistake (box-level `parameter_enable` only, initial enable on): the fix and the
+  `.als` check are in CONVENTIONS "Saving in the Live set" (another chat is fixing Wanderer).
 - Wanderer's wrapper allocates on the audio thread (resize in perform): never copy that part.
 
 ## Next step
-Fix saving, one Live test. Prime suspect: **Initial Enable on (initial 0) for the hidden state parameters**; Cycling '74
-docs say the initial value is recalled when a device is instantiated, saved or edited, which would wipe the stored list
-on load (both stores failed identically, and that setting is the one they share).
-1. `tools/build_device.py`: for State (and State Dict) drop `parameter_initial` / set `parameter_initial_enable` 0
-   (`valueof()` always sets it to 1 now: add an option). Bump to 15d. Keep the 15c trace for this test.
-2. Live test: new set, two devices, wait for `[save]`, save, reopen. Expect `state restored from the pattr`.
-3. If it still comes back `0`: check in Max (open the device, Inspector of `pattr state`) that Parameter Mode, Type
-   Blob and Stored Only are really applied after loading the generated JSON; try `live.thisdevice` + the stored value
-   via `pattr @autorestore` or a `[pattrstorage]`-free approach found by research. Don't build blind: research first.
-4. When it works: keep the store that answered, remove the other and the dict code, turn the trace off, update
-   CONVENTIONS ("proven"). Then Phase 2 (test bench; ask the user for ~10 short dry stems).
+1. Clean-up build (15f, proposed, waiting for the user's "go"): keep the pattr store only (remove the dict, its
+   `dictionary` path in the wrapper and the second store in controller/tests), turn the load/save trace off (keep one
+   line: `state restored` / `new device`), offline tests, CI. One short Live check (save, reopen: `state restored`).
+2. Then Phase 2 (test bench; ask the user for ~10 short dry stems).

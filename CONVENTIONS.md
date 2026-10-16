@@ -51,11 +51,14 @@ Stable rules for every device in this repo. Device-specific state lives in `devi
 
 ## Saving in the Live set
 
-**NOT YET PROVEN in Live** (Lifegiver 15a–15c all lost their state on reopen). What is known:
+**Proven in Live 11.3 (Lifegiver 15e, 2026-10-16):** a hidden `[pattr state]` blob parameter holding a number list is saved in the set and restored on reopen, per device, no crosstalk. The recipe for a generated device:
+- **Parameter mode of a plain object (`pattr`, `dict`) goes in `saved_object_attributes`**, as Max writes it: `"saved_object_attributes": {"parameter_enable": 1, "parameter_mappable": 0}` (plus the box-level `"parameter_enable": 1`). A box-level `parameter_enable` alone only works for UI objects (`live.dial` etc.); on a pattr it is silently ignored: the pattr still holds its value during the session, but Live saves an **empty blob** (`<MxDBlob><Blob /></MxDBlob>` in the `.als`), so everything is lost on reopen. This was the cause of Lifegiver 15a–15d (and wanderer-synth's State pattr has the same mistake).
+- The pattr gets `"varname": "<its name>"`; `saved_attribute_attributes.valueof`: `parameter_type` 3 (blob), `parameter_invisible` 1 (Stored Only), **Initial Enable 0 and no `parameter_initial`** (the proven combination; whether Initial Enable on also works is untested).
+- Live restores the value at once when the device loads (before `live.thisdevice` fires). Still ask more than once on load and save nothing until it is settled: it costs nothing.
+- Debug tip: a `.als` is gzip'd XML. `gunzip -c set.als` and look at the device's `<BlobSlot>`: empty `<Blob />` means nothing was stored.
 - Never a dict name in a pattr: a pattr given `dictionary <name>` saves only the name, `---` names change on reload, and the old name can point at another device's dict (Lifegiver 15a).
-- A hidden blob `[pattr state]` (type 3, Stored Only) does hold a number list during the session (traced in 15c), but after reopening it came back as its initial value 0; an unnamed `dict @parameter_enable 1` came back empty. Both had **Initial Enable on (initial 0)**; Cycling '74's docs say the initial value is recalled when a device is instantiated, saved or edited. Prime suspect: switch Initial Enable **off** for state parameters (wanderer-synth's State pattr has it on too). Confirm in Live before relying on it.
+- An unnamed `dict` with parameter mode (also in `saved_object_attributes`, with `"embed": 0`) was restored too in 15e; one store is enough, prefer the pattr.
 - No new symbols per save (Max never frees symbols): encode text as character codes.
-- On load, ask for the stored value more than once and save nothing until it is settled (15c traces showed no late restore, but it costs nothing).
 
 ## Max JS rules
 
