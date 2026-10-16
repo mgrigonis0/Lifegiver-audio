@@ -1,5 +1,5 @@
 // Lifegiver: the audio thread. Runs Listen's capture on the input and the processing chain on the plan the main
-// thread hands over, then blends: Amount (0 % = the input, bit for bit) and Compare (the input at the plan's intended
+// thread hands over (with Scale and the Average mode), then blends: Amount (0 % = the input, bit for bit) and Compare (the input at the plan's intended
 // stage level, so before/after is loudness-matched).
 //
 // Thread rules (CONVENTIONS): process() never allocates, locks or frees.
@@ -39,6 +39,9 @@ public:
 
     // Main thread → audio thread, any time, any rate.
     void setAmount(double a01) { amountTarget.store(a01 < 0 ? 0 : (a01 > 1 ? 1 : a01), std::memory_order_relaxed); }
+    // Scale (0 … 4, 1 = the plan) and the Average mode: read by the chain once per block (it glides them itself)
+    void setScale(double s) { scaleTarget.store(s < 0 ? 0 : (s > SCALE_MAX ? SCALE_MAX : s), std::memory_order_relaxed); }
+    void setAverage(bool on) { averageTarget.store(on, std::memory_order_relaxed); }
     void setCompare(bool on, double levelDb) {
         compareTarget.store(on ? 1.0 : 0.0, std::memory_order_relaxed);
         compareLevel.store(dbToLin(levelDb), std::memory_order_relaxed);
@@ -57,6 +60,7 @@ public:
         amount.setTime(SMOOTH_TAU, sr);
         cmp.setTime(COMPARE_TAU, sr);
         cmpGain.setTime(SMOOTH_TAU, sr);
+        chain.setScale(scaleTarget.load()); chain.setAverage(averageTarget.load());
         chain.reset(plan ? *plan : Plan(), sr);
     }
 
@@ -71,6 +75,8 @@ public:
             running = true;
         }
         amount.set(at); cmp.set(ct); cmpGain.set(cg);
+        chain.setScale(scaleTarget.load(std::memory_order_relaxed));
+        chain.setAverage(averageTarget.load(std::memory_order_relaxed));
         capture.process(inL, inR, n, sr);
         double dl[SUB], dr[SUB], wl[SUB], wr[SUB];
         for (long o = 0; o < n; o += SUB) {
@@ -100,7 +106,8 @@ public:
 private:
     double sr = 44100.0;
     bool running = false;
-    std::atomic<double> amountTarget{1.0}, compareTarget{0.0}, compareLevel{1.0};
+    std::atomic<double> amountTarget{1.0}, compareTarget{0.0}, compareLevel{1.0}, scaleTarget{1.0};
+    std::atomic<bool> averageTarget{false};
     Smoother amount, cmp, cmpGain;
     Chain chain;
     Plan* plan = nullptr;
@@ -110,7 +117,8 @@ private:
         while (cmds.pop(c)) {
             if (c.type == C_PLAN && c.ptr) {
                 Plan* p = (Plan*)c.ptr;
-                if (first) chain.reset(*p, sr); else chain.setTarget(*p);
+                if (first) { chain.setScale(scaleTarget.load()); chain.setAverage(averageTarget.load()); chain.reset(*p, sr); }
+                else chain.setTarget(*p);
                 if (plan) {
                     Report r;
                     r.type = R_GARBAGE_PLAN; r.ptr = plan;

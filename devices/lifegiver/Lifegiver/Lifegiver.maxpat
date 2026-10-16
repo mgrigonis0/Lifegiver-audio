@@ -172,7 +172,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-16b"
+					"text": "patch 2026-10-16c"
 				}
 			},
 			{
@@ -271,7 +271,7 @@
 					"filename": "lifegiver.strip.js",
 					"parameter_enable": 0,
 					"border": 0,
-					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched.",
+					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched; Scale multiplies the processing (0 = none, 100 % = as planned, up to 400 %); Dyn/Avg: the dynamic tools follow the sound or hold their average (less CPU).",
 					"annotation_name": "Lifegiver"
 				}
 			},
@@ -299,7 +299,7 @@
 					"id": "obj-13",
 					"maxclass": "newobj",
 					"numinlets": 2,
-					"numoutlets": 24,
+					"numoutlets": 26,
 					"patching_rect": [
 						40.0,
 						640.0,
@@ -330,9 +330,11 @@
 						"",
 						"",
 						"",
+						"",
+						"",
 						""
 					],
-					"text": "route weight warm bite air texture punch tail steady role pan depth width edge lo hi fit amount clean vara varb varc vard vare"
+					"text": "route weight warm bite air texture punch tail steady role pan depth width edge lo hi fit amount clean vara varb varc vard vare scale dynamics"
 				}
 			},
 			{
@@ -1579,6 +1581,114 @@
 						""
 					],
 					"text": "prepend vare"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-62",
+					"maxclass": "live.dial",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						865.0,
+						810.0,
+						44.0,
+						48.0
+					],
+					"outlettype": [
+						"",
+						"float"
+					],
+					"varname": "Scale",
+					"parameter_enable": 1,
+					"saved_attribute_attributes": {
+						"valueof": {
+							"parameter_longname": "Scale",
+							"parameter_shortname": "Scale",
+							"parameter_type": 0,
+							"parameter_mmin": 0,
+							"parameter_mmax": 400,
+							"parameter_initial_enable": 1,
+							"parameter_unitstyle": 5,
+							"parameter_initial": [
+								100
+							]
+						}
+					}
+				}
+			},
+			{
+				"box": {
+					"id": "obj-63",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						865.0,
+						865.0,
+						70.0,
+						22.0
+					],
+					"outlettype": [
+						""
+					],
+					"text": "prepend scale"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-64",
+					"maxclass": "live.dial",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						40.0,
+						920.0,
+						44.0,
+						48.0
+					],
+					"outlettype": [
+						"",
+						"float"
+					],
+					"varname": "Dynamics",
+					"parameter_enable": 1,
+					"saved_attribute_attributes": {
+						"valueof": {
+							"parameter_longname": "Dynamics",
+							"parameter_shortname": "Dynamics",
+							"parameter_type": 2,
+							"parameter_mmin": 0,
+							"parameter_mmax": 1,
+							"parameter_initial_enable": 1,
+							"parameter_unitstyle": 0,
+							"parameter_initial": [
+								0
+							],
+							"parameter_enum": [
+								"Dynamic",
+								"Average"
+							]
+						}
+					}
+				}
+			},
+			{
+				"box": {
+					"id": "obj-65",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						40.0,
+						975.0,
+						70.0,
+						22.0
+					],
+					"outlettype": [
+						""
+					],
+					"text": "prepend dynamics"
 				}
 			}
 		],
@@ -2930,6 +3040,102 @@
 			{
 				"patchline": {
 					"source": [
+						"obj-13",
+						23
+					],
+					"destination": [
+						"obj-62",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-62",
+						0
+					],
+					"destination": [
+						"obj-63",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-63",
+						0
+					],
+					"destination": [
+						"obj-2",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-63",
+						0
+					],
+					"destination": [
+						"obj-11",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-13",
+						24
+					],
+					"destination": [
+						"obj-64",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-64",
+						0
+					],
+					"destination": [
+						"obj-65",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-65",
+						0
+					],
+					"destination": [
+						"obj-2",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-65",
+						0
+					],
+					"destination": [
+						"obj-11",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
 						"obj-5",
 						2
 					],
@@ -3199,6 +3405,30 @@
 					],
 					"destination": [
 						"obj-60",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-5",
+						2
+					],
+					"destination": [
+						"obj-62",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-5",
+						2
+					],
+					"destination": [
+						"obj-64",
 						0
 					]
 				}

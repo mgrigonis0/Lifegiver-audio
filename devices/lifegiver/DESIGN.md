@@ -257,7 +257,7 @@ latency, CPU); more than 3 bands (artifacts for little gain); output limiter (§
 - Specificity detection (§6): proxy to test on the stems.
 - Whether the full UI fits 169 px or the Moves console needs a pop-out: decide on mockup v2.
 
-## 17. As built (16a, revised in 16b): the concrete definitions
+## 17. As built (16a, revised in 16b and 16c): the concrete definitions
 
 First drafts, measured on the synthetic signals and the user's 10 stems (`tools/render bench`); tuned by ear next.
 
@@ -320,9 +320,60 @@ stages, 15 ms). CPU with every module working: ~1.9 % of one core (Linux CI mach
 - Strip 706 px; Stage role order Bass, Rhythm, Hook, Lead, Support, Bed, FX; Moves pages on click.
 - Bench (10 stems, no character): reach 25–99 %; a full first solve 0.5–3.1 s, each character 0.2–3.5 s (background).
 
-**Not yet** (next builds): dynamic EQ and resonance tamer (Clean's second job), multiband, post-saturation slot,
-short ambience, specificity detection for Identity (Identity↔Fit only scales the role's pull and protects unasked
-qualities for now), the Moves pop-out (on/off, amount, method swap), Texture − (smoothing).
+**16c: the rest of the sound tools, Scale, Dyn | Avg** (`modules.h`, `chain.h`, `brain.h`):
+- Chain: low cut → EQ → tilt → **resonance tamer** → **dynamic EQ** → saturation → compressor/expander →
+  **multiband** → transient shaper → **high smoothing** → **saturation (post)** → high cut → **ambience** → stereo
+  stage → make-up + stage level → (Scale > 100 %) level match + ceiling. All zero latency; each new module at 0 is
+  exactly the input.
+- Every dynamic module computes a *unit* gain (its gain at amount 1, from its detector); applied = amount × unit
+  (linear in the amount: Scale and the solver rely on it). **Average** holds amount × the unit's average, measured on
+  the takes at the end of every solve (one extra render with every dynamic module at 1) and saved in the plan
+  (`P_AVG_*`); no detectors run, the multiband becomes two shelves. Switching glides (no clicks).
+- **Dynamic EQ** (tools `T_DWARM`, `T_DBITE`): a bell at 300 Hz / 3 kHz cuts up to 12 dB × amount when its band's
+  share of the sound rises above its usual share (the median, measured at Listen: `Profile::dynThr`), full cut 6 dB
+  above it. Serves Warm/Bite *down* only.
+- **Resonance tamer** (Clean, not a solver tool): up to 4 fixed peaks found at Listen in the long-term spectrum
+  (1/24 octave > 5 dB over its octave, 200 Hz–10 kHz, not a partial of ≥ 10 % of the voiced frames); each a notch
+  (Q 6) that dips up to 8 dB when a narrow detector (Q 8) rises over a wide one (Q 1) at the same frequency. Depth =
+  Clean. Synthetic test: a +15 dB ring at 1.5 kHz in noise found and dipped 6.8 dB, 600 Hz untouched.
+- **High smoothing** (`T_SMOOTH`, Texture *down* only): the highs above 1.2 kHz (split by subtraction) have their
+  spikes rounded off at once above 1.5 × the highs' usual peak level (a running 80th percentile of 1/3 ms peaks):
+  steady partials pass (a clean saw changes by −51 dB), crackle and grit drop. Modest by nature: noise inside a held
+  note can't be separated without latency (the later tonal/noisy split).
+- **Multiband** (`T_MBLO/MID/HI`, Steady *up*, low band also Weight *down*): lo | mid | hi at 2.5 × the lowest
+  content (120–300 Hz) and 2.5 kHz, split by subtraction (the bands always sum to the input: continuous from amount 0;
+  an all-pass crossover made the measures jump at the first touch), a compressor per band (ratio 3, knee 6 dB,
+  threshold = the band's usual upper level, measured at Listen).
+- **Saturation (post)** (`T_SAT2`): the same ADAA saturator after the dynamics; Vintage and Driven lean on it.
+- **Ambience** (placement, not a tool): early reflections (6 taps a side) + a short feedback decay (two late taps,
+  damped; ~0.4–1 s), from distance: none in the front half, mix up to 0.4 at the very back, a bigger room further
+  back. The back no longer asks for more Tail (the room brings it).
+- **Scale** (0–400 %, `scale`): multiplies the shaping values (EQ, tilt, both saturations, compressor, expander,
+  transients, dynamic EQ, smoothing, multiband) within wider limits (EQ ±24 dB, drive to +26 dB, compressor ratio to
+  13), not the placement (cuts, Clean, stage, ambience). The make-up follows up to 100 %; past it a slow level match
+  (1.5 s, gated) takes over and a soft ceiling (from −1 dBFS, never over 0 dBFS) fades in by 200 %. Moves show the
+  scaled values; reach is still measured at 100 %.
+- **Roles don't pan**: a role sets distance, width, edge and range; the pan is the user's.
+- **Directions**: `TOOL_FOR` says which way a tool may serve a quality (both / only up / only down); a cut can't be
+  used to "add" and the smoothing can't be used for grain.
+- **Solver robustness** (with 17 tools): sensitivities are clamped to 15 dB per typical step; Broyden updates only
+  from steps of ≥ 0.05 typical steps, in step units; small effects of a tool on a quality it doesn't serve (< 0.75 dB
+  per step) are treated as noise in the step; a failed step is tried at ½ and ¼ before the model is blamed; an ask
+  the enabled tools can't get near (all their sensitivities × 2 steps < half of it) is reported unreached instead of
+  chased; per-step scale never finer than 0.5 dB; λ 0.1. Characters' steadiness pushes halved (Vintage 1.5, Driven
+  2.5): already steady sounds can't get much steadier.
+- **Speed**: the solve set is 4.5 s; the first solve probes only the tools the ask enables (the plan plays sooner),
+  then the rest are probed in the background before the characters. Bench (10 stems): first plan 0.3–4.5 s, then
+  ~1–5 s per character (this machine).
+- **CPU** (every module working, 48 kHz): 3.2 % of one core (Dynamic), 3.0 % (Average); the test fails above 5 %.
+  Saturation was made cheaper (each logcosh computed once, tanh of the bias cached).
+- **State**: plans and tools are appended, so 16a/16b sets read as a prefix and play exactly as before; the reading
+  gains 9 values (resonances, dynamic EQ shares, multiband levels); older readings get defaults (no resonances).
+- Bench (no character / characters): reach 26–97 % / 17–94 %.
+
+**Not yet** (next builds): specificity detection for Identity (Identity↔Fit only scales the role's pull and protects
+unasked qualities for now), the Moves pop-out (on/off, amount, method swap); later: the tonal/noisy split (needs
+latency); tuning by ear on the stems.
 
 ## 16. Rejected / superseded (one line each)
 

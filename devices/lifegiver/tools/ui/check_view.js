@@ -101,6 +101,28 @@ const bar = click(vc.x + vc.w / 2, 119);
 expect(bar.some(s => /^p vara 50/.test(s)), "the A bar sets A's strength (halfway = 50 %)");
 m.ctx.ondrag(0, 0, 0);
 expect(click(cr[0] + 20, cr[1] + 8).join() === "compare 1", "Compare toggles");
+const sk = X.outKnob(1);
+click(sk.cx, sk.cy);
+const sd = dragTo(sk.cx, sk.cy - 50);
+expect(sd.length > 0 && /^p scale 220$/.test(sd[sd.length - 1]), "dragging Scale up 50 px: 100 % -> 220 % (Live parameter, up to 400 %)");
+m.ctx.ondrag(0, 0, 0);
+m.ctx.ondblclick(sk.cx, sk.cy);
+expect(m.sent.some(s => s === "p scale 100"), "double-click resets Scale to 100 %");
+const mr = X.modeRect();
+expect(click(mr[0] + mr[2] * 0.75, mr[1] + 6).join() === "p dynamics 1" && click(mr[0] + mr[2] * 0.25, mr[1] + 6).join() === "p dynamics 0",
+       "Dyn | Avg: Avg holds the dynamic tools' averages (a Live parameter)");
+const cl = X.cleanRect();
+const cb = click(cl[0] + cl[2] * 0.6, cl[1] + 10);
+expect(cb.some(s => /^p clean 60$/.test(s)), "the Clean bar sets Clean (60 %)");
+m.ctx.ondrag(0, 0, 0);
+msg(m, "dynamics", 1);
+msg(m, "moves", 29, 0.5, 2, -0.5, -0.8, 30, 2, -1, 0, 0, 35, 0.3, -1, 0, 0);
+const held = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+console.log("    drawn: " + held.split("|").filter(t => /Eas|Tam|Room|Avg|Scale/.test(t)).join(" / "));
+expect(/Easing harshness, held/.test(held) && /Taming 2 rings/.test(held) && /Room/.test(held) && /Avg/.test(held) && /Scale/.test(held),
+       "the 16c moves read in words; in Average the dynamic ones say 'held'");
+msg(m, "dynamics", 0);
+msg(m, "moves", 5, 0.9, 2, 1.5, 1.7, 13, 141, 7, 0.6, 0.6, 15, 0.14, 5, 0.9, 1.0, 19, 62, -1, 0, 0, 22, 0.77, -1, 0, 0, 24, 0.6, -1, 0, 0);
 m.ctx.ondblclick(kc.x + kc.w / 2, kc.y + 30);
 expect(m.sent.some(s => s === "p bite 0"), "double-click resets a knob to 0");
 const fit = click(fr[0] + fr[2] - 0.5, 40);

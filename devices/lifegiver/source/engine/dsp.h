@@ -24,11 +24,13 @@ inline double powToDb(double p) { return 10.0 * std::log10(p > 1e-30 ? p : 1e-30
 
 // ------------------------------------------------------------------------------------------------- SVF
 struct Svf {
-    enum Mode { LP, HP, BP, BELL, LOWSHELF, HIGHSHELF };
+    enum Mode { LP, HP, BP, BELL, LOWSHELF, HIGHSHELF, BPN, AP };   // BPN: band pass with 0 dB peak; AP: all-pass
     double a1 = 0, a2 = 0, a3 = 0, m0 = 1, m1 = 0, m2 = 0, k = 1;
     double ic1 = 0, ic2 = 0;
 
     void reset() { ic1 = ic2 = 0; }
+    // the same filter (coefficients only, the memory is kept): one set() for both channels
+    void copyCoefs(const Svf& o) { a1 = o.a1; a2 = o.a2; a3 = o.a3; m0 = o.m0; m1 = o.m1; m2 = o.m2; k = o.k; }
     // f in Hz (kept below 0.49 sr), q > 0, gainDb for bell/shelves
     void set(Mode mode, double f, double q, double gainDb, double sr) {
         f = clampd(f, 5.0, 0.49 * sr);
@@ -43,6 +45,8 @@ struct Svf {
             case BELL: k = 1.0 / (q * A); m0 = 1; m1 = k * (A * A - 1); m2 = 0; break;
             case LOWSHELF: g /= std::sqrt(A); m0 = 1; m1 = k * (A - 1); m2 = A * A - 1; break;
             case HIGHSHELF: g *= std::sqrt(A); m0 = A * A; m1 = k * (1 - A) * A; m2 = 1 - A * A; break;
+            case BPN: m0 = 0; m1 = k; m2 = 0; break;
+            case AP: m0 = 1; m1 = -2 * k; m2 = 0; break;
         }
         a1 = 1.0 / (1.0 + g * (g + k));
         a2 = g * a1;
@@ -104,20 +108,22 @@ inline double logcosh(double u) {
 // One channel of the ADAA saturator. y = (tanh(G x + b) - tanh b) / (G sech^2 b): unity gain for small signals, so
 // the residual y - x is only the distortion. Evaluated with first-order ADAA on u = G x + b.
 struct Sat {
-    double uPrev = 0, xPrev = 0;
+    double uPrev = 0, xPrev = 0, lcPrev = 0;   // lcPrev = logcosh(uPrev) (each value computed once)
+    double bC = 0, tb = 0, s2 = 1;             // tanh(b) and sech²(b), for the last bias
     Svf dc;              // the residual's DC and sub-sonic thump (an even curve follows the notes' envelope) removed
-    void reset(double sr) { uPrev = 0; xPrev = 0; dc.reset(); dc.set(Svf::HP, 30.0, 0.7071, 0, sr); }
+    void reset(double sr) { uPrev = 0; xPrev = 0; lcPrev = 0; bC = 0; tb = 0; s2 = 1; dc.reset(); dc.set(Svf::HP, 30.0, 0.7071, 0, sr); }
     // returns the residual (nonlinear part only), in the units of x
     inline double residual(double x, double G, double b) {
+        if (b != bC) { bC = b; tb = std::tanh(b); s2 = 1 - tb * tb; }
         const double u = G * x + b;
         const double du = u - uPrev;
+        const double lc = logcosh(u);
         double f;
-        if (std::fabs(du) > 1e-6) f = (logcosh(u) - logcosh(uPrev)) / du;
+        if (std::fabs(du) > 1e-6) f = (lc - lcPrev) / du;
         else f = std::tanh(0.5 * (u + uPrev));
-        const double tb = std::tanh(b), s2 = 1 - tb * tb;
         const double y = (f - tb) / (G * s2);
         const double lin = 0.5 * (x + xPrev);   // ADAA of the linear part: the same half-sample average
-        uPrev = u; xPrev = x;
+        uPrev = u; xPrev = x; lcPrev = lc;
         return dc.tick(y - lin);
     }
 };

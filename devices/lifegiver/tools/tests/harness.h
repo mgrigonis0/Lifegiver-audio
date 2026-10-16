@@ -203,6 +203,15 @@ inline Plan busyPlan() {
     p[P_HIGHCUT_ON] = 1; p[P_HIGHCUT_HZ] = 12000;
     p[P_WIDTH] = 1.4; p[P_PAN] = 0.3;
     p[P_MAKEUP_DB] = 2; p[P_STAGE_DB] = -1.5;
+    // 16c: every dynamic module, the second saturation and the ambience
+    p[P_SAT2_DRIVE] = 0.3;
+    p[P_DWARM_AMT] = 0.5; p[P_DBITE_AMT] = 0.5; p[P_DWARM_THR] = -8; p[P_DBITE_THR] = -16;
+    p[P_SMOOTH_AMT] = 0.5;
+    p[P_MB_LO] = 0.5; p[P_MB_MID] = 0.5; p[P_MB_HI] = 0.5; p[P_MB_THR1] = -24; p[P_MB_THR2] = -28; p[P_MB_THR3] = -32;
+    p[P_RES_DEPTH] = 0.7; p[P_RES_HZ1] = 700; p[P_RES_HZ2] = 1500; p[P_RES_HZ3] = 3100; p[P_RES_HZ4] = 6200;
+    p[P_AMB_MIX] = 0.2; p[P_AMB_SIZE] = 0.9;
+    p[P_AVG_DWARM] = -2; p[P_AVG_DBITE] = -3; p[P_AVG_SMOOTH] = -1; p[P_AVG_MB1] = -3; p[P_AVG_MB2] = -3; p[P_AVG_MB3] = -3;
+    p[P_AVG_RES1] = -4; p[P_AVG_RES2] = -4; p[P_AVG_RES3] = -4; p[P_AVG_RES4] = -4;
     return p;
 }
 

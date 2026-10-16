@@ -47,15 +47,19 @@ var VARS = ["A", "B", "C", "D", "E"], VNAMES = ["Polish", "Warm", "Bold", "Vinta
 var MOVE = ["", "Lifting lows", "Easing lows", "Warming low-mids", "Clearing low-mid mud", "Lifting presence",
     "Softening presence", "Lifting air", "Darkening top", "Tilting brighter", "Tilting darker", "Warm harmonics",
     "Edgy harmonics", "Steadying level", "Lowering gaps", "Sharper attacks", "Softer attacks", "Longer sustain",
-    "Shorter tails", "Low cut", "High cut", "Widening, lows mono", "Narrowing", "Pan", "Level matched", "Set back"];
+    "Shorter tails", "Low cut", "High cut", "Widening, lows mono", "Narrowing", "Pan", "Level matched", "Set back",
+    "Warm harmonics, post", "Edgy harmonics, post", "Easing mud", "Easing harshness", "Taming", "Smoothing grit",
+    "Holding lows", "Holding mids", "Holding highs", "Room"];
+var HELD = { 28: 1, 29: 1, 30: 1, 31: 1, 32: 1, 33: 1, 34: 1 };   // dynamic moves: "held" in Average mode
 var NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 // the Live parameters (as last heard from them)
 var P = { weight: 0, warm: 0, bite: 0, air: 0, texture: 0, punch: 0, tail: 0, steady: 0,
     pan: 0, depth: 0.82, width: 0.35, edge: 0, lo: 60, hi: 20000, role: 0, fit: 0.5, amount: 100, clean: 40,
-    vara: 0, varb: 0, varc: 0, vard: 0, vare: 0 };
+    vara: 0, varb: 0, varc: 0, vard: 0, vare: 0, scale: 100, dynamics: 0 };
 var LIMITS = { pan: [-1, 1], depth: [0, 1], width: [0, 1], edge: [0, 1], lo: [20, 20000], hi: [20, 20000], fit: [0, 1],
-    amount: [0, 100], clean: [0, 100], vara: [0, 100], varb: [0, 100], varc: [0, 100], vard: [0, 100], vare: [0, 100] };
+    amount: [0, 100], clean: [0, 100], vara: [0, 100], varb: [0, 100], varc: [0, 100], vard: [0, 100], vare: [0, 100],
+    scale: [0, 400], dynamics: [0, 1] };
 // what the engine said
 var T = { n: 0, secs: [0, 0, 0, 0], cap: 0, kept: 0, busy: 0 };
 var F = { valid: 0, heard: 0, sec: 0, lo: 0, hi: 0, harm: 0, sus: 0, corr: 1, dots: 1, reach: -1, stageDb: 0, compare: 0, live: 0 };
@@ -292,6 +296,8 @@ function moveText(m) {
     if (m[0] === 20) s += " " + fmtHz(m[1]);
     if (m[0] === 13) s += m[1] >= 250 ? ", slow" : (m[1] <= 60 ? ", fast" : "");
     if (m[0] === 23) s += m[1] < 0 ? " L" + Math.round(-m[1] * 100) : " R" + Math.round(m[1] * 100);
+    if (m[0] === 30) s += " " + Math.round(m[1]) + (Math.round(m[1]) === 1 ? " ring" : " rings");
+    if (HELD[m[0]] && P.dynamics >= 0.5) s += ", held";
     return s;
 }
 function moveResult(m) {
@@ -301,6 +307,8 @@ function moveResult(m) {
     if (m[0] === 22) return "narrower";
     if (m[0] === 23) return "pan";
     if (m[0] === 24 || m[0] === 25) return sgn(m[1]) + " dB";
+    if (m[0] === 30) return "clean";
+    if (m[0] === 35) return "distance";
     return "";
 }
 function movePages() { return Math.max(1, Math.ceil(MV.length / 5)); }
@@ -339,9 +347,15 @@ function paintMoves() {
     text("A subtle \u2192 E strong", x + w / 2, 161, 6, [0.42, 0.42, 0.42], false, 1, w, a);
 }
 
-function outKnob(i) { var x = ix("out"), w = iw("out"); return { cx: x + w * (i ? 0.75 : 0.25), cy: 74, name: i ? "Clean" : "Amount", p: i ? "clean" : "amount" }; }
+// Out, top to bottom: Identity <-> Fit, Clean, the Amount and Scale knobs, Dynamic | Average, Compare
+function outKnob(i) {
+    var x = ix("out"), w = iw("out");
+    return { cx: x + w * (i ? 0.75 : 0.25), cy: 85, name: i ? "Scale" : "Amount", p: i ? "scale" : "amount", max: i ? 400 : 100 };
+}
 function fitRect() { return [ix("out"), 32, iw("out"), 14]; }
-function compareRect() { return [ix("out"), 112, iw("out"), 17]; }
+function cleanRect() { return [ix("out"), 49, iw("out"), 16]; }
+function modeRect() { return [ix("out"), 112, iw("out"), 13]; }
+function compareRect() { return [ix("out"), 129, iw("out"), 16]; }
 
 function paintOut() {
     panel("out");
@@ -351,20 +365,30 @@ function paintOut() {
     text("Fit", x + w, 34, 7, [0.74, 0.74, 0.74], false, 2);
     box(x, 38, w, 5, 2.5, C.well);
     box(x + P.fit * w - 2, 36, 4, 9, 2, C.out);
+    text("Clean", x, 55, 7, [0.74, 0.74, 0.74], false, 0);
+    text(Math.round(P.clean) + "%", x + w, 55, 7, [0.74, 0.74, 0.74], false, 2);
+    box(x, 59, w, 5, 2.5, C.well);
+    if (P.clean > 0) box(x, 59, w * P.clean / 100, 5, 2.5, C.out);
     for (var i = 0; i < 2; i++) {
-        var k = outKnob(i), v = P[k.p], ang = -135 + 270 * v / 100;
-        text(k.name, k.cx, 60, 7.5, [0.86, 0.86, 0.86], true, 1, w / 2 + 2);
+        var k = outKnob(i), v = P[k.p], ang = -135 + 270 * v / k.max;
+        text(k.name, k.cx, 74, 7.5, [0.86, 0.86, 0.86], true, 1, w / 2 + 2);
         arc(k.cx, k.cy + 4, KR, -135, 135, C.track, 2.5);
-        arc(k.cx, k.cy + 4, KR, -135, ang, C.out, 2.5);
+        if (i === 1) arc(k.cx, k.cy + 4, KR + 2.5, -135 + 270 * 0.25 - 1, -135 + 270 * 0.25 + 1, C.dim, 1.5);   // 100 %
+        arc(k.cx, k.cy + 4, KR, -135, ang, i === 1 && v > 100 ? C.warn : C.out, 2.5);
         var aa = rad(ang);
         line(k.cx, k.cy + 4, k.cx + (KR - 2) * Math.cos(aa), k.cy + 4 + (KR - 2) * Math.sin(aa), C.bright, 1.5);
-        text(Math.round(v) + "%", k.cx, k.cy + 24, 8, C.bright, false, 1);
+        text(Math.round(v) + "%", k.cx, k.cy + 23, 7.5, C.bright, false, 1);
     }
+    var mr = modeRect(), half = mr[2] / 2, avg = P.dynamics >= 0.5;
+    box(mr[0], mr[1], mr[2], mr[3], 6.5, C.well);
+    box(mr[0] + (avg ? half : 0), mr[1], half, mr[3], 6.5, C.out);
+    text("Dyn", mr[0] + half / 2, mr[1] + 9.5, 7, avg ? C.outPale : [0.165, 0.078, 0.067], true, 1, half);
+    text("Avg", mr[0] + half * 1.5, mr[1] + 9.5, 7, avg ? [0.165, 0.078, 0.067] : C.outPale, true, 1, half);
     var on = F.compare, r = compareRect();
-    box(r[0], r[1], r[2], r[3], 8.5, on ? C.out : C.panel);
-    frame(r[0], r[1], r[2], r[3], 8.5, C.out);
-    text(on ? "Before" : "Compare", x + w / 2, r[1] + 12, 8.5, on ? [0.165, 0.078, 0.067] : C.outPale, true, 1, w - 4);
-    text("level-matched", x + w / 2, 143, 6.5, C.dim, false, 1, w);
+    box(r[0], r[1], r[2], r[3], 8, on ? C.out : C.panel);
+    frame(r[0], r[1], r[2], r[3], 8, C.out);
+    text(on ? "Before" : "Compare", x + w / 2, r[1] + 11.5, 8.5, on ? [0.165, 0.078, 0.067] : C.outPale, true, 1, w - 4);
+    text("level-matched", x + w / 2, 157, 6.5, C.dim, false, 1, w);
 }
 
 // ------------------------------------------------------------------------------------------------- input
@@ -376,7 +400,7 @@ function setP(name, v) {
     outlet(0, "p", name, v);
     mgraphics.redraw();
 }
-function outKnobHit(x, y, o) { var ok = outKnob(o); return Math.abs(x - ok.cx) < iw("out") / 4 && y >= 50 && y < 106; }
+function outKnobHit(x, y, o) { var ok = outKnob(o); return Math.abs(x - ok.cx) < iw("out") / 4 && y >= 66 && y < 111; }
 
 function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
     drag = null;
@@ -415,9 +439,12 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
     // out
     var fr = fitRect();
     if (inRect(x, y, fr)) { drag = { kind: "bar", name: "fit", x0: fr[0], w: fr[2], scale: 1, step: 0 }; ondrag(x, y, 1); return; }
+    var cl = cleanRect();
+    if (inRect(x, y, cl)) { drag = { kind: "bar", name: "clean", x0: cl[0], w: cl[2], scale: 100, step: 1 }; ondrag(x, y, 1); return; }
     for (var o = 0; o < 2; o++) {
-        if (outKnobHit(x, y, o)) { var ok = outKnob(o); drag = { kind: "knob", name: ok.p, y0: y, v0: P[ok.p], lo: 0, hi: 100, per: 0.6 }; return; }
+        if (outKnobHit(x, y, o)) { var ok = outKnob(o); drag = { kind: "knob", name: ok.p, y0: y, v0: P[ok.p], lo: 0, hi: ok.max, per: 0.6 * ok.max / 100 }; return; }
     }
+    if (inRect(x, y, modeRect())) { setP("dynamics", x >= modeRect()[0] + modeRect()[2] / 2 ? 1 : 0); return; }
     if (inRect(x, y, compareRect())) { outlet(0, "compare", F.compare ? 0 : 1); return; }
 }
 
@@ -451,7 +478,7 @@ function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
 
 function ondblclick(x, y) {
     for (var k = 0; k < 8; k++) { var c = knobCell(k); if (inRect(x, y, [c.x, c.y, c.w, c.h]) && F.valid) { setP(KN[k], 0); return; } }
-    for (var o = 0; o < 2; o++) if (outKnobHit(x, y, o)) { setP(outKnob(o).p, o ? 40 : 100); return; }
+    for (var o = 0; o < 2; o++) if (outKnobHit(x, y, o)) { setP(outKnob(o).p, 100); return; }
 }
 // ------------------------------------------------------------------------------------------------- messages
 function anything() {

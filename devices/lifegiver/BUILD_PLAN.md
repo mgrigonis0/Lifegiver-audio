@@ -5,7 +5,7 @@ testable. Design: `DESIGN.md`. Pipeline and rules: `CONVENTIONS.md`. Reference i
 `mgrigonis0/wanderer-synth` (`devices/wanderer/`: CMake, wrapper, `tools/build_device.py`, `tools/tests/`,
 `.github/workflows/wanderer.yml`)._
 
-**Status (2026-10-16, builds 16a–16b):** Phases 0–1 done (saving proven in Live, 15e). At the user's request ("combine as
+**Status (2026-10-16, builds 16a–16c):** Phases 0–1 done (saving proven in Live, 15e). At the user's request ("combine as
 much as possible") build 16a combines Phase 2 (bench: `tools/render`, measures, tests), Phase 3 (Listen, reading),
 Phase 3b, most of Phase 4 (EQ, tilt, cuts, saturation, compressor/expander, transient shaper, stereo stage, output)
 and Phase 5 (targets, one solver, fast/slow paths, variations A–E and mixes, Moves, saving) and Phase 6 (the strip
@@ -13,6 +13,9 @@ view, after mockup v2) — all tested offline, one Live test. Left: Phase 4 item
 the Moves pop-out, specificities (Identity), then Phase 7 (tuning by ear). Concrete definitions: DESIGN §17.
 Build 16b (after the 16a Live test): no take files, A–E as characters of rising strength, 706 px strip, Moves
 paging, weak bands shapeable, role order (DESIGN §17 "16b changes").
+Build 16c ("as few builds as possible": build 1 of 2): the rest of Phase 4 (dynamic EQ, resonance tamer, high
+smoothing = Texture down, multiband, post saturation, ambience), Scale 0–400 % next to Amount, Dyn | Avg, roles
+don't pan (DESIGN §17 "16c"). Build 2: the Moves pop-out (mockup first) and Identity specificities. Then Phase 7.
 
 Rules for every phase: discuss and propose first, build after the user's "go"; one step at a time; simulate and test
 offline before asking for a Live test; commit every build, push when the user agrees; plain-language digest to the user,

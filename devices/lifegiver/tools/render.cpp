@@ -36,7 +36,10 @@ static const char* const MOVE_TEXT[] = {
     "Softening presence", "Lifting the air", "Darkening the top", "Tilting brighter", "Tilting darker",
     "Adding warm harmonics", "Adding edgy harmonics", "Steadying level", "Freeing the dynamics", "Sharpening attacks",
     "Softening attacks", "Lengthening sustain", "Shortening tails", "Clearing lows below", "Easing highs above",
-    "Widening, lows kept mono", "Narrowing", "Stereo pan", "Level matched to the input", "Set back"};
+    "Widening, lows kept mono", "Narrowing", "Stereo pan", "Level matched to the input", "Set back",
+    "Warm harmonics after dynamics", "Edgy harmonics after dynamics", "Easing mud when it builds", "Easing harshness when it builds",
+    "Taming resonances", "Smoothing grit", "Holding the lows", "Holding the mids", "Holding the highs", "Room (distance)"};
+static_assert(sizeof(MOVE_TEXT) / sizeof(MOVE_TEXT[0]) == MV_AMBIENCE + 1, "a name for every move");
 
 // Listen, as the device does it: Arm, feed the audio in blocks, take what the capture keeps
 static Audio listen(const Audio& src, size_t from, double sr) {
@@ -110,7 +113,7 @@ static void printSolution(const Solution& s) {
 static void applyRole(Inputs& in, int role, const Profile& p = Profile()) {
     in.role = role;
     const RolePreset r = rolePresetFor(role, p);
-    in.pan = r.pan; in.depth = r.depth; in.width = r.width; in.edge = r.edge; in.lo = r.lo; in.hi = r.hi;
+    in.depth = r.depth; in.width = r.width; in.edge = r.edge; in.lo = r.lo; in.hi = r.hi;
 }
 
 static int roleByName(const std::string& n) {
@@ -160,6 +163,10 @@ static int bench(const std::string& dir, const std::string& outDir) {
         std::printf("  stage %s asks:", st.role);
         for (int q = 0; q < NQ; q++) if (std::fabs(push[q]) >= 0.25) std::printf(" %s %+.1f", QUALITY_NAMES[q], push[q]);
         std::printf("\n");
+        const auto t0b = std::chrono::steady_clock::now();
+        const Solution quick = solve(*ss, p, in, -1, nullptr, 8, false);
+        std::printf("  first plan (only the asked tools probed) %.0f ms, reach %.0f %%\n",
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0b).count(), quick.reach * 100);
         const auto t1 = std::chrono::steady_clock::now();
         Solution s = solve(*ss, p, in, -1);
         const double msS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count();

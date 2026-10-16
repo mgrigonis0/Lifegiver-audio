@@ -80,6 +80,8 @@ public:
         auto n = [&](size_t i, double def) { return (i < a.size() && a[i].num) ? a[i].d : def; };
         for (int q = 0; q < NQ; q++) if (m == KNOB_PARAMS[q].name) { setInput(in.knob[q], clampd(n(0, 0), -10, 10)); return; }
         if (m == "amount") { amountPct = clampd(n(0, 100), 0, 100); pr->setAmount(amountPct / 100.0); return; }
+        if (m == "scale") { const double v = clampd(n(0, 100), 0, 400) / 100.0; if (v != scale) { scale = v; pr->setScale(scale); sendMovesUi(); } return; }
+        if (m == "dynamics") { const bool a1 = n(0, 0) > 0.5; if (a1 != average) { average = a1; pr->setAverage(average); } return; }
         if (m == "pan") { setInput(in.pan, clampd(n(0, 0), -1, 1)); return; }
         if (m == "depth") { setInput(in.depth, clampd(n(0, 0.82), 0, 1)); return; }
         if (m == "width") { setInput(in.width, clampd(n(0, 0.5), 0, 1)); return; }
@@ -174,6 +176,11 @@ public:
         // the reading
         std::vector<double> pv = {(double)prof.takes, prof.activeSec, (double)prof.onsets, prof.f0min, prof.f0max, prof.harmonic,
                                   prof.sustained, prof.corr, prof.sideDb, prof.loudness, prof.lowestHz, prof.peakRef, prof.levelHi, prof.levelLo};
+        if (prof.has16c) {
+            pv.insert(pv.end(), prof.resHz, prof.resHz + 4);
+            pv.insert(pv.end(), prof.dynThr, prof.dynThr + 2);
+            pv.insert(pv.end(), prof.mbThr, prof.mbThr + 3);
+        }
         d.num["prof"] = pv;
         std::vector<double> rd;
         for (int q = 0; q < NQ; q++) { rd.push_back(prof.reading[q]); rd.push_back(prof.readValid[q] ? 1 : 0); rd.push_back(prof.certainty[q]); }
@@ -211,7 +218,8 @@ public:
 private:
     Processor* pr;
     Host* host;
-    double amountPct = 100;
+    double amountPct = 100, scale = 1.0;
+    bool average = false;
     Inputs in;
     int solo = -1;
     bool compareOn = false;
@@ -269,10 +277,11 @@ private:
     void pickRole(int r) {
         const RolePreset p = rolePresetFor(r, prof);
         in.role = r;
-        // the patch's parameters follow (and echo back here; the values are already set, so nothing happens twice)
-        in.pan = p.pan; in.depth = p.depth; in.width = p.width; in.edge = p.edge; in.lo = p.lo; in.hi = p.hi;
+        // the patch's parameters follow (and echo back here; the values are already set, so nothing happens twice).
+        // The pan stays where the user put it.
+        in.depth = p.depth; in.width = p.width; in.edge = p.edge; in.lo = p.lo; in.hi = p.hi;
         host->param("role", r);
-        host->param("pan", p.pan); host->param("depth", p.depth); host->param("width", p.width);
+        host->param("depth", p.depth); host->param("width", p.width);
         host->param("edge", p.edge); host->param("lo", p.lo); host->param("hi", p.hi);
         inputsChanged();
     }
@@ -392,8 +401,8 @@ private:
         auto warm = std::make_shared<Solution>(sol);
         auto out = std::make_shared<Solution>();
         host->post([ss, p, inp, warm, out]() {
-            *out = solve(*ss, p, inp, -1, warm->ok ? warm.get() : nullptr);
-        }, [this, g, sg, out, inp]() {
+            *out = solve(*ss, p, inp, -1, warm->ok ? warm.get() : nullptr, 8, false);
+        }, [this, g, sg, out, inp, ss, p]() {
             if (g != gen || sg != solveGen) return;
             busy = false;
             sol = *out;
@@ -406,7 +415,16 @@ private:
                 setPlay(s.plan, s.reach);
             }
             sendUi();
-            startVariations(0);
+            if (!sol.ok) return;
+            // then the tools nothing asked for yet (so every knob and character works on the fast path, also after a
+            // reopen), then the five characters
+            auto full = std::make_shared<Solution>(sol);
+            host->post([ss, p, inp, full]() { completeSensitivities(*ss, p, inp, -1, *full); }, [this, g, sg, full]() {
+                if (g != gen || sg != solveGen) return;
+                for (int m = 0; m < NM; m++) for (int k = 0; k < NT; k++) sol.J[m][k] = full->J[m][k];
+                dirty(SAVE_DEBOUNCE_MS);
+                startVariations(0);
+            });
         });
         sendUi();
     }
@@ -436,11 +454,19 @@ private:
     void readSound(const StateDoc& d) {
         const std::vector<double>* pv = d.get("prof");
         const std::vector<double>* rd = d.get("read");
-        if (!pv || pv->size() != 14 || !rd || rd->size() != (size_t)(3 * NQ)) return;
+        if (!pv || (pv->size() != 14 && pv->size() != 23) || !rd || rd->size() != (size_t)(3 * NQ)) return;
         Profile p;
         p.takes = (int)(*pv)[0]; p.activeSec = (*pv)[1]; p.onsets = (int)(*pv)[2]; p.f0min = (*pv)[3]; p.f0max = (*pv)[4];
         p.harmonic = (*pv)[5]; p.sustained = (*pv)[6]; p.corr = (*pv)[7]; p.sideDb = (*pv)[8]; p.loudness = (*pv)[9];
         p.lowestHz = (*pv)[10]; p.peakRef = (*pv)[11]; p.levelHi = (*pv)[12]; p.levelLo = (*pv)[13];
+        if (pv->size() == 23) {   // 16c on: the dynamic modules' places and levels
+            for (int k = 0; k < 4; k++) p.resHz[k] = (*pv)[(size_t)(14 + k)];
+            for (int k = 0; k < 2; k++) p.dynThr[k] = (*pv)[(size_t)(18 + k)];
+            for (int k = 0; k < 3; k++) p.mbThr[k] = (*pv)[(size_t)(20 + k)];
+            p.has16c = true;
+        } else {   // an older set: the multiband's levels from the overall ones, no resonances known
+            for (int k = 0; k < 3; k++) p.mbThr[k] = p.levelHi - 6.0 * k;
+        }
         for (int q = 0; q < NQ; q++) { p.reading[q] = (*rd)[(size_t)(3 * q)]; p.readValid[q] = (*rd)[(size_t)(3 * q + 1)] > 0.5; p.certainty[q] = (*rd)[(size_t)(3 * q + 2)]; }
         if (const std::vector<double>* o = d.get("oct6")) p.oct6 = *o;
         p.valid = true;
@@ -450,22 +476,32 @@ private:
         sol = Solution();
         const std::vector<double>* sv = d.get("sol");
         const std::vector<double>* sp = d.get("solplan");
-        const size_t solOld = NT + NM * NT + 2 * NM + 4 * NQ + 1, solN = solOld + NM;   // 16a had no raw zero
-        if (sv && (sv->size() == solN || sv->size() == solOld) && sp && sp->size() == (size_t)NP) {
-            const bool raw = sv->size() == solN;
+        // the saved solve: 16a (no raw zero, 10 tools), 16b (raw zero, 10 tools) or 16c on (raw zero, NT tools).
+        // Tools an older set didn't have get no sensitivities: the fast path leaves them alone until a re-listen.
+        auto solSize = [](int nt, bool raw) { return (size_t)(nt + NM * nt + (raw ? 3 : 2) * NM + 4 * NQ + 1); };
+        int nt = -1;
+        bool raw = true;
+        if (sv) {
+            if (sv->size() == solSize(NT, true)) nt = NT;
+            else if (sv->size() == solSize(NT_16B, true)) nt = NT_16B;
+            else if (sv->size() == solSize(NT_16B, false)) { nt = NT_16B; raw = false; }
+        }
+        auto planOk = [](const std::vector<double>* v) { return v && (v->size() == (size_t)NP || v->size() == (size_t)NP_16B); };
+        auto planFrom = [](const std::vector<double>& v, Plan& out) { out = Plan(); for (size_t i = 0; i < v.size() && i < (size_t)NP; i++) out[(int)i] = v[i]; };
+        if (nt > 0 && planOk(sp)) {
             size_t k = 0;
-            for (int t = 0; t < NT; t++) sol.tools[t] = (*sv)[k++];
-            for (int m = 0; m < NM; m++) for (int t = 0; t < NT; t++) sol.J[m][t] = (*sv)[k++];
+            for (int t = 0; t < nt; t++) sol.tools[t] = (*sv)[k++];
+            for (int m = 0; m < NM; m++) for (int t = 0; t < nt; t++) sol.J[m][t] = (*sv)[k++];
             for (int m = 0; m < NM; m++) { sol.M[m] = (*sv)[k++]; sol.Z[m] = (*sv)[k++]; sol.Zraw[m] = raw ? (*sv)[k++] : sol.Z[m]; }
             for (int q = 0; q < NQ; q++) { sol.zok[q] = (*sv)[k++] > 0.5; sol.units.up[q] = (*sv)[k++]; sol.units.dn[q] = (*sv)[k++]; sol.units.ok[q] = (*sv)[k++] > 0.5; }
             sol.inLoud = (*sv)[k++];
-            for (int i = 0; i < NP; i++) sol.plan[i] = (*sp)[(size_t)i];
+            planFrom(*sp, sol.plan);
             sol.ok = true;
         }
         const std::vector<double>* pl = d.get("play");
         Inputs pin;
-        if (pl && pl->size() == (size_t)NP && inputsFrom(d.get("playin"), pin)) {
-            for (int i = 0; i < NP; i++) play[i] = (*pl)[(size_t)i];
+        if (planOk(pl) && inputsFrom(d.get("playin"), pin)) {
+            planFrom(*pl, play);
             playInputs = pin;
             playSolo = (int)d.get1("playsolo", -1);
             playReach = d.get1("playreach", -1);
@@ -543,19 +579,23 @@ private:
             kv.push_back(shown.ok ? shown.asked[q] : 0);
         }
         host->ui("knobs", kv);
-        // moves: kind, value, quality (−1), reached, asked — at most 12
+        sendMovesUi();
+        sendVarsUi();
+    }
+
+    void sendMovesUi() {
+        // moves: kind, value, quality (−1), reached, asked — at most 20 (the view pages them)
         std::vector<double> mv;
         if (prof.valid && shown.ok) {
             Solution s = shown;
             s.plan = play;
-            const std::vector<Move> ms = movesOf(s);
-            for (size_t i = 0; i < ms.size() && i < 12; i++) {
+            const std::vector<Move> ms = movesOf(s, scale);
+            for (size_t i = 0; i < ms.size() && i < 20; i++) {
                 mv.push_back(ms[i].kind); mv.push_back(ms[i].value); mv.push_back(ms[i].q);
                 mv.push_back(ms[i].reached); mv.push_back(ms[i].asked);
             }
         }
         host->ui("moves", mv);
-        sendVarsUi();
     }
 };
 

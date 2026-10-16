@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "measure.h"
+#include "modules.h"
 
 namespace lg {
 
@@ -30,6 +31,11 @@ struct Profile {
     double peakRef = 0.3;      // typical peak level (linear): gain staging into saturation
     double levelHi = -20, levelLo = -40;   // detector levels (dBFS): compressor / expander thresholds
     std::vector<double> oct6;  // power in 1/6-octave bands from 20 Hz (for re-reading a range without the takes)
+    // 16c: for the dynamic modules (absent in older sets: the modules then use their defaults or stay off)
+    double resHz[4] = {0, 0, 0, 0};          // resonances: fixed peaks that are not the notes' partials (0 = none)
+    double dynThr[2] = {-6, -14};            // the Warm / Bite bands' usual share of the sound (dB, median)
+    double mbThr[3] = {-20, -26, -32};       // the three bands' usual upper level (dBFS)
+    bool has16c = false;
 
     Profile() { for (int i = 0; i < NQ; i++) { reading[i] = 0; readValid[i] = false; certainty[i] = 0; } }
 
@@ -143,9 +149,9 @@ inline std::shared_ptr<TakeSet> makeTakeSet(const std::vector<Audio>& takes) {
     return ts;
 }
 
-// The takes the solver renders: at most ~6 s in all (the closed loop renders them a few dozen times), each take's
+// The takes the solver renders: at most ~4.5 s in all (the closed loop renders them a few dozen times), each take's
 // share from its start.
-inline std::shared_ptr<TakeSet> solveSetOf(const std::vector<Audio>& takes, double totalSec = 6.0) {
+inline std::shared_ptr<TakeSet> solveSetOf(const std::vector<Audio>& takes, double totalSec = 4.5) {
     std::vector<Audio> cut;
     for (const Audio& a : takes) {
         const size_t n = std::min(a.size(), (size_t)(totalSec / std::max<size_t>(1, takes.size()) * a.sr));
@@ -156,6 +162,87 @@ inline std::shared_ptr<TakeSet> solveSetOf(const std::vector<Audio>& takes, doub
         cut.push_back(c);
     }
     return makeTakeSet(cut);
+}
+
+// ------------------------------------------------------------------------------------------------- 16c analysis
+// Resonances: in the long-term spectrum, narrow peaks (1/24 octave) standing > 5 dB over their octave, 200 Hz–10 kHz,
+// that are not the partials of the notes heard (a peak that sits on a harmonic of most voiced frames is a partial).
+inline void findResonances(const MeasureAcc& acc, const std::vector<double>& f0s, double harmonic, double* hz) {
+    for (int k = 0; k < 4; k++) hz[k] = 0;
+    auto mean = [&](double lo, double hi) {
+        const int a = std::max(1, (int)std::ceil(lo / MeasureAcc::GRID_HZ)), b = std::min(MeasureAcc::GRID_N - 1, (int)std::floor(hi / MeasureAcc::GRID_HZ));
+        double s = 0;
+        for (int g = a; g <= b; g++) s += acc.spec[(size_t)g];
+        return b >= a ? s / (b - a + 1) : 0.0;
+    };
+    const double total = acc.bandPower(20, 20000) / (20000 / MeasureAcc::GRID_HZ);
+    if (total <= 0) return;
+    std::vector<double> f, e;
+    for (int i = 0;; i++) {
+        const double fr = 200 * std::pow(2.0, i / 48.0);
+        if (fr > 10000) break;
+        const double hw = std::max(fr * (std::pow(2.0, 1 / 48.0) - 1), 12.0);
+        const double nb = mean(fr - hw, fr + hw), wb = mean(fr / 1.4142, fr * 1.4142);
+        f.push_back(fr);
+        e.push_back(nb > total * 1e-5 && wb > 0 ? powToDb(nb / wb) : -100);
+    }
+    struct C { double f, e; };
+    std::vector<C> cand;
+    for (size_t i = 1; i + 1 < f.size(); i++) {
+        if (e[i] < 5 || e[i] < e[i - 1] || e[i] < e[i + 1]) continue;
+        if (harmonic > 0.3 && !f0s.empty()) {
+            // a partial of the notes played in at least a tenth of the voiced frames (within the peak's own width)
+            const double tol = std::max(std::pow(2.0, 1 / 48.0) - 1, 12.0 / f[i]) + 0.01;
+            size_t on = 0;
+            for (double f0 : f0s) {
+                const double k = std::round(f[i] / f0);
+                if (k >= 1 && std::fabs(f[i] / (k * f0) - 1) < tol) on++;
+            }
+            if ((double)on / (double)f0s.size() >= 0.1) continue;
+        }
+        cand.push_back({f[i], e[i]});
+    }
+    std::sort(cand.begin(), cand.end(), [](const C& a, const C& b) { return a.e > b.e; });
+    int n = 0;
+    for (const C& c : cand) {
+        bool near = false;
+        for (int k = 0; k < n; k++) near = near || std::fabs(std::log2(c.f / hz[k])) < 1.0 / 3;
+        if (near) continue;
+        hz[n++] = c.f;
+        if (n == 4) break;
+    }
+}
+
+inline double mbSplitLo(double lowestHz) { return clampd(2.5 * lowestHz, 120, 300); }
+inline double periodMsOf(double f0min) { return f0min > 0 ? 1000.0 / f0min : 25.0; }
+
+// The dynamic EQ's usual share per band, and the multiband's usual levels, measured with the chain's own detectors.
+inline void measureDynamics(const TakeSet& ts, double lowestHz, double f0min, double* dynThr, double* mbThr) {
+    std::vector<double> ex[2], lv[3];
+    for (const Audio& a : ts.takes) {
+        const double cr = a.sr / 16;
+        DynBell d[2];
+        d[0].setup(300, 1.0, 0, 0.8, 15, 200, a.sr, cr);
+        d[1].setup(3000, 1.0, 0, 0.9, 3, 80, a.sr, cr);
+        Multiband mb;
+        mb.setup(mbSplitLo(lowestHz), 2500, periodMsOf(f0min), a.sr, cr);
+        double pk = 1e-9;
+        for (size_t i = 0; i < a.size(); i++) pk = std::max(pk, (double)std::fabs(a.l[i]) + std::fabs(a.r[i]));
+        const double gate = linToDb(pk / 2) - 50;
+        for (size_t i = 0; i < a.size(); i++) {
+            const double m = 0.5 * (a.l[i] + a.r[i]);
+            d[0].detect(m); d[1].detect(m);
+            double b0[3], b1[3];
+            mb.split(0, a.l[i], b0[0], b0[1], b0[2]);
+            mb.split(1, a.r[i], b1[0], b1[1], b1[2]);
+            for (int b = 0; b < 3; b++) mb.det[b].tick(std::max(std::fabs(b0[b]), std::fabs(b1[b])));
+            if (i % 16 != 15) continue;
+            for (int k = 0; k < 2; k++) if (d[k].wb.db() > gate) ex[k].push_back(d[k].nb.db() - d[k].wb.db());
+            for (int b = 0; b < 3; b++) { const double x = linToDb(mb.det[b].y + 1e-9); if (x > gate) lv[b].push_back(x); }
+        }
+    }
+    for (int k = 0; k < 2; k++) if (ex[k].size() > 20) dynThr[k] = percentile(ex[k], 0.5);
+    for (int b = 0; b < 3; b++) if (lv[b].size() > 20) mbThr[b] = percentile(lv[b], 0.6) - 3;
 }
 
 inline Profile analyze(const TakeSet& ts) {
@@ -220,6 +307,9 @@ inline Profile analyze(const TakeSet& ts) {
     p.levelLo = percentile(hiLevels, 0.25) - 6;
     p.oct6.assign(Profile::OCT6_N, 0.0);
     for (int i = 0; i < Profile::OCT6_N; i++) p.oct6[(size_t)i] = acc.bandPower(Profile::oct6Lo(i), Profile::oct6Lo(i + 1));
+    findResonances(acc, f0s, p.harmonic, p.resHz);
+    measureDynamics(ts, p.lowestHz, p.f0min, p.dynThr, p.mbThr);
+    p.has16c = true;
     // how sure: spectral values from the seconds of sound, onset values from the number of onsets, more takes help
     const double specC = clampd(p.activeSec / 3.0, 0.2, 1.0) * (p.takes >= 2 ? 1.0 : 0.9);
     const double onC = p.onsets >= 8 ? 1.0 : (p.onsets >= 3 ? 0.66 : (p.onsets >= 1 ? 0.33 : 0.0));

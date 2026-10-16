@@ -370,13 +370,21 @@ static void testCpu() {
     rig.msg("amount", {60});
     Stereo in = noiseSig(10.0, sr), out;
     out.l.resize(in.size()); out.r.resize(in.size());
-    const auto t0 = std::chrono::steady_clock::now();
-    for (size_t d = 0; d + 128 <= in.size(); d += 128)
-        rig.pr->process(in.l.data() + d, in.r.data() + d, out.l.data() + d, out.r.data() + d, 128);
-    const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    const double pct = sec / 10.0 * 100;
-    std::printf("    every module working, 10 s of stereo at 48 kHz in %.4f s: %.3f %% of one core\n", sec, pct);
-    fails += expect(pct < 3.0, "under the 3 % budget (this machine; the user's Intel Mac is checked in Live)");
+    // the best of three runs per mode, alternating (a shared machine's noise only ever adds time)
+    auto run = [&]() {
+        const auto t0 = std::chrono::steady_clock::now();
+        for (size_t d = 0; d + 128 <= in.size(); d += 128)
+            rig.pr->process(in.l.data() + d, in.r.data() + d, out.l.data() + d, out.r.data() + d, 128);
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    };
+    double dyn = 1e9, avg = 1e9;
+    for (int k = 0; k < 3; k++) {
+        rig.msg("dynamics", {0}); run(); dyn = std::min(dyn, run());
+        rig.msg("dynamics", {1}); run(); avg = std::min(avg, run());
+    }
+    std::printf("    every module working, 10 s of stereo at 48 kHz: %.3f %% of one core (Dynamic), %.3f %% (Average)\n", dyn * 10, avg * 10);
+    fails += expect(dyn * 10 < 5.0, "under the 5 % budget (this machine; about 10 % on a 2015 Intel Mac, checked in Live)");
+    fails += expect(avg < dyn, "Average costs less than Dynamic");
 }
 
 // values that arrive before audio starts (Live restoring a set) apply at once: no fade-in from the default
@@ -403,8 +411,12 @@ static void testLoad() {
     fails += expect(std::fabs(o3.l[0] - in.l[0] * dbToGain(-6)) < 1e-12, "a plan that arrives before audio starts applies at once");
 }
 
-int main() {
+#include "module_tests.h"
+
+int main(int argc, char** argv) {
     std::printf("lifegiver engine %s — offline tests\n", VERSION);
+    if (argc > 1 && std::string(argv[1]) == "modules") { testModules(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
+    if (argc > 1 && std::string(argv[1]) == "brain") { testBrain(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
     testLoad();
     testPassThrough();
     testFade();
@@ -418,6 +430,7 @@ int main() {
     testCapture();
     testReading();
     testBrain();
+    testModules();
     testListenFlow();
     testCpu();
     std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails);

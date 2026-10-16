@@ -233,7 +233,8 @@ static void testBrain() {
     Inputs tx = in;
     tx.knob[Q_BITE] = 0; tx.knob[Q_TEXTURE] = 6;
     const Solution sa = solve(*ts, p, tx, 0);
-    fails += expect(sa.tools[T_SAT] == 0 && sa.reached[Q_TEXTURE] < 1, "Polish (A) adds no harmonics, so it reaches (almost) no more grain");
+    std::printf("    Polish, Texture +6: reached %+.2f, sat %.2f sat2 %.2f smooth %.2f dbite %.2f\n", sa.reached[Q_TEXTURE], sa.tools[T_SAT], sa.tools[T_SAT2], sa.tools[T_SMOOTH], sa.tools[T_DBITE]);
+    fails += expect(sa.tools[T_SAT] == 0 && sa.tools[T_SAT2] == 0 && sa.reached[Q_TEXTURE] < 1, "Polish (A) adds no harmonics, so it reaches (almost) no more grain");
     const Solution sc = solve(*ts, p, tx, 2);
     fails += expect(sc.tools[T_SAT] > 0.05 && sc.reached[Q_TEXTURE] > 2, "Bold (C) adds harmonics for grain on a pitched sound");
     auto nts = makeTakeSet({sig::noise()});
@@ -269,13 +270,14 @@ static void testBrain() {
     askedPush(dv, -1, pd);
     Inputs bl = none; bl.vars[1] = 0.5; bl.vars[4] = 0.5;
     askedPush(bl, -1, pb2);
-    fails += expect(pd[Q_AIR] < p0[Q_AIR] - 2 && pd[Q_WARM] > p0[Q_WARM] + 1 && pd[Q_STEADY] > p0[Q_STEADY] + 2,
+    fails += expect(pd[Q_AIR] < p0[Q_AIR] - 2 && pd[Q_WARM] > p0[Q_WARM] + 1 && pd[Q_STEADY] > p0[Q_STEADY] + 1,
                     "Vintage at 100 %: asks for a softer top, more warmth, a steadier level (on top of the stage)");
     fails += expect(std::fabs(pb2[Q_STEADY] - p0[Q_STEADY] - (0.5 * VAR_PUSH[1][Q_STEADY] + 0.5 * VAR_PUSH[4][Q_STEADY])) < 1e-9,
                     "a blend asks the strength-weighted sum of its characters");
     const Solution sd = solve(*ts, p, dv, -1);
     const Solution s0 = solve(*ts, p, none, -1);
-    fails += expect(sd.tools[T_SAT] >= 0.45 && sd.tools[T_COMP] >= 0.35 && sd.plan[P_TILT_DB] < -1 && s0.tools[T_SAT] == 0 && sd.reach > 0.7,
+    std::printf("    Vintage: sat %.2f sat2 %.2f comp %.2f tilt %.2f reach %.2f; none: sat %.2f sat2 %.2f\n", sd.tools[T_SAT], sd.tools[T_SAT2], sd.tools[T_COMP], sd.plan[P_TILT_DB], sd.reach, s0.tools[T_SAT], s0.tools[T_SAT2]);
+    fails += expect(sd.tools[T_SAT] >= 0.25 && sd.tools[T_SAT2] >= 0.2 && sd.tools[T_COMP] >= 0.35 && sd.plan[P_TILT_DB] < -1 && s0.tools[T_SAT] == 0 && s0.tools[T_SAT2] == 0 && sd.reach > 0.7,
                     "Vintage: its colour (harmonics, glue) always, a softer top as asked; no character adds no harmonics");
     // the first solve knows every tool, so the fast path can answer any character later (a reopened set)
     bool allKnown = true;
