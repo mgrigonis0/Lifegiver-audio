@@ -173,8 +173,10 @@ sounds a bit different:
   plan.
 - **Compare**: before/after, always loudness-matched.
 - **Clean**: amount of automatic cleanup.
-- Level, in two parts: **make-up** (static, from the closed loop) removes any level change the processing causes by
-  accident; **intended level** is only the stage's distance (0 to about −3 dB), shown in the plain-words line. No
+- Level, in three parts: **make-up** removes any level change the processing causes by accident (the solve's make-up
+  acts at once; since 17a the device also measures its own output against its input as it plays and glides a small
+  correction on top, so it stays matched at any setting); **intended level** is only the stage's distance (0 to about
+  −3 dB), shown in the plain-words line; **Gain** (±12 dB, centre 0) is the user's own trim after everything. No
   output limiter: Live mixes in floating point, and a limiter would colour what Punch and Steady shape.
 
 ## 11. Under the hood: tools (modules)
@@ -198,7 +200,8 @@ improvement** (BUILD_PLAN Phase 2 metrics) in offline tests on real audio.
 10. **Multiband dynamics** (2–3 bands, same crossovers).
 11. **Pan and width**: true stereo pan, mid/side width, lows mono; mono sources widened by decorrelation (not Haas).
 12. **Short ambience**: early reflections + small darkened room, for distance, not as an effect.
-13. **Output**: static make-up + stage level; K-weighted loudness (BS.1770) is the measuring method.
+13. **Output**: make-up (solved, then corrected live) + stage level, then the user's Gain; K-weighted loudness
+    (BS.1770) is the measuring method.
 
 **Fixed order** (every plan, every variation): Clean (low cut, resonance) → EQ/tilt → dynamic EQ → saturation (pre)
 → dynamics (compressor, transient shaper, multiband) → saturation (post) / HF softening → pan/width → short ambience
@@ -323,8 +326,8 @@ stages, 15 ms). CPU with every module working: ~1.9 % of one core (Linux CI mach
 **16c: the rest of the sound tools, Scale, Dyn | Avg** (`modules.h`, `chain.h`, `brain.h`):
 - Chain: low cut → EQ → tilt → **resonance tamer** → **dynamic EQ** → saturation → compressor/expander →
   **multiband** → transient shaper → **high smoothing** → **saturation (post)** → high cut → **ambience** → stereo
-  stage → make-up + stage level → (Scale > 100 %) level match + ceiling. All zero latency; each new module at 0 is
-  exactly the input.
+  stage → make-up + stage level → (Scale > 100 %) ceiling. All zero latency; each new module at 0 is
+  exactly the input. (17a: the make-up is corrected live, see below.)
 - Every dynamic module computes a *unit* gain (its gain at amount 1, from its detector); applied = amount × unit
   (linear in the amount: Scale and the solver rely on it). **Average** holds amount × the unit's average, measured on
   the takes at the end of every solve (one extra render with every dynamic module at 1) and saved in the plan
@@ -345,9 +348,19 @@ stages, 15 ms). CPU with every module working: ~1.9 % of one core (Linux CI mach
   an all-pass crossover made the measures jump at the first touch), a compressor per band (ratio 3, knee 6 dB,
   threshold = the band's usual upper level, measured at Listen).
 - **Saturation (post)** (`T_SAT2`): the same ADAA saturator after the dynamics; Vintage and Driven lean on it.
-- **Ambience** (placement, not a tool): early reflections (6 taps a side) + a short feedback decay (two late taps,
-  damped; ~0.4–1 s), from distance: none in the front half, mix up to 0.4 at the very back, a bigger room further
-  back. The back no longer asks for more Tail (the room brings it).
+- **Ambience** (placement, not a tool): early reflections (6 taps a side, from a plain delay line) + a short dense
+  tail: 16 delay lines (19–55 ms, mutually prime) mixed through a 16×16 Hadamard matrix, each with a loss filter so
+  the highs die faster (17a; 16c's tail was a single line feeding itself, a comb that rang at fixed pitches for over a
+  second). From distance: none in the front half, mix up to 0.4 at the very back; distance changes only the decay
+  (~0.15–0.4 s measured) and the darkness, never the line lengths (no zipper while dragging). At the very back the
+  room sits about −13 to −15 LU under a sustained sound and −16 to −20 LU under drums (RESEARCH: mixes with reverb
+  at −9 LU or more were judged too wet). The tail rings like decaying noise, not at pitches (tested). The back no
+  longer asks for more Tail (the room brings it).
+- **Live level match** (17a, audio thread only): both sides K-weighted, 100 ms blocks counted only while the input
+  sounds; after a new plan 0.4 s of sound give a fresh estimate, then a ~4 s window. The plan's make-up acts at once,
+  only the measured correction glides (two 0.25 s stages). Off in the solver's renders (they measure loudness
+  themselves); cleared by a pass-through plan, so no takes = exactly the input. Why: the fast path's make-up after a
+  character move missed by up to +3.3 / −7 dB on real stems; with the match, within ±1 dB once settled.
 - **Scale** (0–400 %, `scale`): multiplies the shaping values (EQ, tilt, both saturations, compressor, expander,
   transients, dynamic EQ, smoothing, multiband) within wider limits (EQ ±24 dB, drive to +26 dB, compressor ratio to
   13), not the placement (cuts, Clean, stage, ambience). The make-up follows up to 100 %; past it a slow level match

@@ -140,6 +140,8 @@ PARAMS = [
     # 16c (appended: the older parameters keep their places)
     ("scale", "Scale", "Scale", 0, 0, 400, 100, 5, 1.0, None),
     ("dynamics", "Dynamics", "Dynamics", 2, 0, 1, 0, 0, 1.0, ["Dynamic", "Average"]),
+    # 16d (appended)
+    ("gain", "Gain", "Gain", 0, -12, 12, 0, 4, 1.0, None),
 ]
 NAMES = [p[0] for p in PARAMS]
 
@@ -149,7 +151,8 @@ INFO = {
             "the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it "
             "does; A–E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched; Scale "
             "multiplies the processing (0 = none, 100 % = as planned, up to 400 %); Dyn/Avg: the dynamic tools follow "
-            "the sound or hold their average (less CPU).",
+            "the sound or hold their average (less CPU). The output always matches the input's loudness; Gain (centre = 0 dB) "
+            "is your own trim after everything.",
 }
 
 # the view: the whole strip, one jsui

@@ -317,13 +317,18 @@ static void testListenFlow() {
     bool same = true;
     for (int i = 0; i < NP; i++) if (!bitEqual(b.ctl->playing()[i], saved[i])) same = false;
     fails += expect(same, "reopened: exactly the saved plan plays");
-    Stereo in = fromAudio(sig::lead(1)), outA, outB;
-    // the audio is the same too (both processors at the same plan)
+    Stereo in = fromAudio(sig::lead(6)), outA, outB;
+    // the audio is the same too (both processors at the same plan). The live level match measures afresh after a
+    // reopen (~0.4 s of sound), so compare once both have settled: same level, same shape.
     a.run(in, 0, in.size(), outA);
     b.run(in, 0, in.size(), outB);
+    const size_t f0 = in.size() - (size_t)(2 * 48000);
+    auto lvl = [&](const std::vector<double>& x) { double e = 0; for (size_t i = f0; i < x.size(); i++) e += x[i] * x[i]; return powToDb(e / (double)(x.size() - f0) + 1e-30); };
+    const double lvA = lvl(outA.l), lvB = lvl(outB.l), gab = dbToLin(lvA - lvB);
     double diff = 0;
-    for (size_t i = 0; i < in.size(); i++) diff = std::max(diff, std::fabs(outA.l[i] - outB.l[i]));
-    fails += expect(diff < 1e-3, "and it sounds the same (largest difference under -60 dB)");
+    for (size_t i = f0; i < in.size(); i++) diff = std::max(diff, std::fabs(outA.l[i] - gab * outB.l[i]));
+    std::printf("    reopened vs before, once settled: level %+.3f dB, largest difference after that %.2g\n", lvB - lvA, diff);
+    fails += expect(std::fabs(lvA - lvB) < 0.1 && diff < 1e-3, "and it sounds the same (level within 0.1 dB once settled; shape under -60 dB)");
     // after reopening, knobs still work (saved sensitivities)
     b.msg("air", {-8});
     b.idle(0.1);
@@ -413,9 +418,69 @@ static void testLoad() {
 
 #include "module_tests.h"
 
+// 16d: the live level match and the user's Gain, through the device's own path (controller + audio thread)
+static void testLevelAndGain() {
+    std::printf("level match and Gain (16d)\n");
+    auto lufsOf = [](const Stereo& x, size_t from, size_t to, double sr) {
+        Audio t; t.sr = sr;
+        for (size_t i = from; i < to; i++) { t.l.push_back((float)x.l[i]); t.r.push_back((float)x.r[i]); }
+        std::vector<double> b; loudnessBlocks(t, b); return integratedLoudness(b);
+    };
+    {
+        // a character at 100 % played on the fast path only (no re-solve, as after reopening a set): the output still
+        // ends up as loud as the input (the stage's own level aside)
+        Rig a;
+        a.init();
+        a.listen(sig::drums(5));
+        a.idle(3.0);
+        a.host.holdJobs = true;
+        a.msg("vare", {100});
+        a.idle(0.05);
+        const Stereo in = fromAudio(sig::drums(10));
+        Stereo out;
+        a.run(in, 0, in.size(), out);
+        const double stage = a.ctl->playing()[P_STAGE_DB];
+        const size_t n = in.size();
+        const double early = lufsOf(out, 0, n / 10, a.sr) - lufsOf(in, 0, n / 10, a.sr) - stage;
+        const double late = lufsOf(out, n / 2, n, a.sr) - lufsOf(in, n / 2, n, a.sr) - stage;
+        std::printf("    E Driven 100 %%, fast path, drums: first second %+.1f LU, after 5 s %+.1f LU vs the input\n", early, late);
+        fails += expect(std::fabs(late) < 1.0, "the live level match: as loud as the input once settled (fast path, a strong character)");
+        a.host.holdJobs = false;
+        // Gain: exactly x1 at 0 dB, +6 dB is +6 dB, and moving it doesn't click
+        Rig g;
+        g.init();
+        const Stereo t = fromAudio(sig::lead(2));
+        Stereo o0, o6;
+        g.msg("amount", {0});
+        g.run(t, 0, t.size(), o0);
+        bool exact = true;
+        for (size_t i = 0; i < t.size(); i++) if (!bitEqual(o0.l[i], t.l[i]) || !bitEqual(o0.r[i], t.r[i])) exact = false;
+        fails += expect(exact, "Gain 0 dB with Amount 0 %: exactly the input");
+        g.msg("gain", {6});
+        g.idle(0.1);
+        g.run(t, 0, t.size(), o6);
+        double e0 = 0, e6 = 0;
+        for (size_t i = 0; i < t.size(); i++) { e0 += t.l[i] * t.l[i]; e6 += o6.l[i] * o6.l[i]; }
+        const double gd = powToDb(e6 / e0);
+        std::printf("    Gain +6 dB: %+.3f dB\n", gd);
+        fails += expect(std::fabs(gd - 6) < 0.01, "Gain +6 dB raises the output by 6 dB");
+        Stereo tone, ot;
+        tone.l.resize((size_t)(2 * g.sr)); tone.r.resize(tone.l.size());
+        for (size_t i = 0; i < tone.size(); i++) tone.l[i] = tone.r[i] = 0.4 * std::sin(2 * M_PI * 80 * i / g.sr);
+        for (int k = 0; k < 8; k++) {
+            g.msg("gain", {k % 2 ? -12.0 : 12.0});
+            g.run(tone, (size_t)k * tone.size() / 8, tone.size() / 8, ot);
+        }
+        const ClickStats cs = findClicks(ot.l);
+        std::printf("    Gain swung -12 <-> +12 dB on a low tone: clicks %ld\n", cs.count);
+        fails += expect(cs.count == 0, "Gain moves without clicks");
+    }
+}
+
 int main(int argc, char** argv) {
     std::printf("lifegiver engine %s — offline tests\n", VERSION);
     if (argc > 1 && std::string(argv[1]) == "modules") { testModules(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
+    if (argc > 1 && std::string(argv[1]) == "level") { testLevelAndGain(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
     if (argc > 1 && std::string(argv[1]) == "brain") { testBrain(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
     testLoad();
     testPassThrough();
@@ -432,6 +497,7 @@ int main(int argc, char** argv) {
     testBrain();
     testModules();
     testListenFlow();
+    testLevelAndGain();
     testCpu();
     std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails);
     return fails ? 1 : 0;

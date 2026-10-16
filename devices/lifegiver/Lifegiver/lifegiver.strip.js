@@ -56,10 +56,10 @@ var NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 // the Live parameters (as last heard from them)
 var P = { weight: 0, warm: 0, bite: 0, air: 0, texture: 0, punch: 0, tail: 0, steady: 0,
     pan: 0, depth: 0.82, width: 0.35, edge: 0, lo: 60, hi: 20000, role: 0, fit: 0.5, amount: 100, clean: 40,
-    vara: 0, varb: 0, varc: 0, vard: 0, vare: 0, scale: 100, dynamics: 0 };
+    vara: 0, varb: 0, varc: 0, vard: 0, vare: 0, scale: 100, dynamics: 0, gain: 0 };
 var LIMITS = { pan: [-1, 1], depth: [0, 1], width: [0, 1], edge: [0, 1], lo: [20, 20000], hi: [20, 20000], fit: [0, 1],
     amount: [0, 100], clean: [0, 100], vara: [0, 100], varb: [0, 100], varc: [0, 100], vard: [0, 100], vare: [0, 100],
-    scale: [0, 400], dynamics: [0, 1] };
+    scale: [0, 400], dynamics: [0, 1], gain: [-12, 12] };
 // what the engine said
 var T = { n: 0, secs: [0, 0, 0, 0], cap: 0, kept: 0, busy: 0 };
 var F = { valid: 0, heard: 0, sec: 0, lo: 0, hi: 0, harm: 0, sus: 0, corr: 1, dots: 1, reach: -1, stageDb: 0, compare: 0, live: 0 };
@@ -347,7 +347,7 @@ function paintMoves() {
     text("A subtle \u2192 E strong", x + w / 2, 161, 6, [0.42, 0.42, 0.42], false, 1, w, a);
 }
 
-// Out, top to bottom: Identity <-> Fit, Clean, the Amount and Scale knobs, Dynamic | Average, Compare
+// Out, top to bottom: Identity <-> Fit, Clean, the Amount and Scale knobs, Dynamic | Average, Compare, Gain (16d)
 function outKnob(i) {
     var x = ix("out"), w = iw("out");
     return { cx: x + w * (i ? 0.75 : 0.25), cy: 85, name: i ? "Scale" : "Amount", p: i ? "scale" : "amount", max: i ? 400 : 100 };
@@ -356,6 +356,7 @@ function fitRect() { return [ix("out"), 32, iw("out"), 14]; }
 function cleanRect() { return [ix("out"), 49, iw("out"), 16]; }
 function modeRect() { return [ix("out"), 112, iw("out"), 13]; }
 function compareRect() { return [ix("out"), 129, iw("out"), 16]; }
+function gainRect() { return [ix("out"), 149, iw("out"), 18]; }
 
 function paintOut() {
     panel("out");
@@ -388,7 +389,14 @@ function paintOut() {
     box(r[0], r[1], r[2], r[3], 8, on ? C.out : C.panel);
     frame(r[0], r[1], r[2], r[3], 8, C.out);
     text(on ? "Before" : "Compare", x + w / 2, r[1] + 11.5, 8.5, on ? [0.165, 0.078, 0.067] : C.outPale, true, 1, w - 4);
-    text("level-matched", x + w / 2, 157, 6.5, C.dim, false, 1, w);
+    // Gain: the user's own trim after everything, centre = 0 dB (the output is already level-matched to the input)
+    var gx = x + w / 2 + clamp(P.gain / 12, -1, 1) * (w / 2), g0 = x + w / 2;
+    text("Gain", x, 155, 7, [0.74, 0.74, 0.74], false, 0);
+    text((P.gain > 0.05 ? "+" : "") + (Math.abs(P.gain) < 0.05 ? "0.0" : P.gain.toFixed(1)) + " dB", x + w, 155, 7, [0.74, 0.74, 0.74], false, 2);
+    box(x, 159, w, 5, 2.5, C.well);
+    if (Math.abs(gx - g0) > 0.5) box(Math.min(gx, g0), 159, Math.abs(gx - g0), 5, 2.5, C.out);
+    box(g0 - 0.5, 157.5, 1, 8, 0.5, C.dim);
+    box(gx - 2, 157, 4, 9, 2, C.bright);
 }
 
 // ------------------------------------------------------------------------------------------------- input
@@ -446,6 +454,8 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
     }
     if (inRect(x, y, modeRect())) { setP("dynamics", x >= modeRect()[0] + modeRect()[2] / 2 ? 1 : 0); return; }
     if (inRect(x, y, compareRect())) { outlet(0, "compare", F.compare ? 0 : 1); return; }
+    var gr = gainRect();
+    if (inRect(x, y, gr)) { drag = { kind: "gain", x0: gr[0], w: gr[2] }; ondrag(x, y, 1); return; }
 }
 
 function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
@@ -456,6 +466,11 @@ function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
         var v = d.v0 + (d.y0 - y) * d.per * (shift ? 0.25 : 1);
         v = d.per < 0.5 ? Math.round(v * 10) / 10 : Math.round(v);
         setP(d.name, clamp(v, d.lo, d.hi));
+        return;
+    }
+    if (d.kind === "gain") {   // centre = 0 dB, -12 ... +12 dB, 0.5 dB steps (shift: 0.1 dB)
+        var gdb = (clamp((x - d.x0) / d.w, 0, 1) * 2 - 1) * 12;
+        setP("gain", shift ? Math.round(gdb * 10) / 10 : Math.round(gdb * 2) / 2);
         return;
     }
     if (d.kind === "bar") {
@@ -479,6 +494,7 @@ function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
 function ondblclick(x, y) {
     for (var k = 0; k < 8; k++) { var c = knobCell(k); if (inRect(x, y, [c.x, c.y, c.w, c.h]) && F.valid) { setP(KN[k], 0); return; } }
     for (var o = 0; o < 2; o++) if (outKnobHit(x, y, o)) { setP(outKnob(o).p, 100); return; }
+    if (inRect(x, y, gainRect())) { setP("gain", 0); return; }
 }
 // ------------------------------------------------------------------------------------------------- messages
 function anything() {

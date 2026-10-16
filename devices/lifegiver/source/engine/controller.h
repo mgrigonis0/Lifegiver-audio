@@ -81,6 +81,7 @@ public:
         for (int q = 0; q < NQ; q++) if (m == KNOB_PARAMS[q].name) { setInput(in.knob[q], clampd(n(0, 0), -10, 10)); return; }
         if (m == "amount") { amountPct = clampd(n(0, 100), 0, 100); pr->setAmount(amountPct / 100.0); return; }
         if (m == "scale") { const double v = clampd(n(0, 100), 0, 400) / 100.0; if (v != scale) { scale = v; pr->setScale(scale); sendMovesUi(); } return; }
+        if (m == "gain") { pr->setGain(clampd(n(0, 0), -12, 12)); return; }
         if (m == "dynamics") { const bool a1 = n(0, 0) > 0.5; if (a1 != average) { average = a1; pr->setAverage(average); } return; }
         if (m == "pan") { setInput(in.pan, clampd(n(0, 0), -1, 1)); return; }
         if (m == "depth") { setInput(in.depth, clampd(n(0, 0.82), 0, 1)); return; }

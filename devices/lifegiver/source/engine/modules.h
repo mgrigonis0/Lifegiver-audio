@@ -9,8 +9,8 @@
 //   or, with a narrow detector inside a wide one, when a resonance rings out (the resonance tamer).
 // - HiSmooth: rounds off the spikes of the highs (grit, crackle, clicks) against the highs' running level.
 // - Multiband: three bands (split by subtraction: they sum to exactly the input), a compressor on each.
-// - Ambience: early reflections (6 taps per side + a small diffuser) and a short decay, for distance. Placement, not
-//   shaping.
+// - Ambience: early reflections (6 taps per side + a small diffuser) and a short dense tail (8-line feedback delay
+//   network), for distance. Placement, not shaping.
 #pragma once
 #include <cmath>
 #include <cstring>
@@ -252,76 +252,131 @@ struct Multiband {
 };
 
 // ------------------------------------------------------------------------------------------------- ambience
-// Early reflections of the sound's mid (lows kept out), different on each side, softened, then a small all-pass
-// diffuser. Added to the dry signal by `mix` (0 = exactly the input). The delay line is allocated once (at most
-// ~85 ms at 192 kHz), never on the audio thread.
+// A small room for distance (16d). The sound's mid (lows kept out) feeds two parts, added to the dry signal by `mix`
+// (0 = exactly the input):
+// - early reflections: 6 taps per side from a plain delay line (no feedback), softened, then a small all-pass diffuser;
+// - a short dense tail: 16 delay lines mixed through a 16x16 Hadamard matrix (a feedback delay network). A dense,
+//   orthogonal mix spreads the energy over thousands of modes, so no pitch builds up; each line's loss filter makes
+//   the highs die faster than the lows. (16c's tail was one line feeding itself: a comb that rang at fixed pitches
+//   for over a second.)
+// The delay lengths are fixed (mutually prime, chosen at setup): size only changes the decay time and the darkness, so
+// moving the stage never re-tunes a line (no zipper, no click). All lines are allocated once (at most ~85 ms at
+// 192 kHz; the 16 tail lines ~2 MB in all), never on the audio thread.
 struct Ambience {
-    static constexpr int N = 16384, D = 2048;
-    std::vector<double> buf, dif[2][2];
-    int w = 0, dw = 0;
+    static constexpr int N = 16384, D = 2048, NL = 16, LN = 16384;
+    std::vector<double> buf, dif[2][2], line[NL];
+    int w = 0, dw = 0, lw = 0;
     double sr = 48000;
     Svf hp;
-    OnePole damp[2], fbDamp;
-    double fb = 0.6;
-    int fb1 = 1, fb2 = 1;
+    OnePole damp[2];
     int tapL[6] = {0}, tapR[6] = {0};
     int difLen[2][2] = {{1, 1}, {1, 1}};
-    double size = -1;
+    int len[NL] = {0};
+    double gLo[NL] = {0}, pole[NL] = {0}, lz[NL] = {0}, fbOut[NL] = {0};
+    double size = -1, t60 = 0.3;
     static constexpr double TL[6] = {7.1, 11.3, 17.9, 23.3, 31.7, 41.1};
     static constexpr double TR[6] = {8.9, 13.7, 19.1, 27.4, 35.3, 44.6};
     static constexpr double G[6] = {0.62, -0.5, 0.42, -0.34, 0.27, -0.21};
-    Ambience() : buf(N, 0.0) { for (auto& a : dif) for (auto& b : a) b.assign(D, 0.0); }
+    static constexpr double LMS[NL] = {19.1, 20.9, 23.3, 25.1, 27.7, 29.9, 32.3, 34.7,
+                                       37.3, 39.7, 42.1, 44.9, 47.3, 49.9, 52.7, 55.3};   // tail lines, ms
+    static constexpr double ER_SIZE = 0.85;     // the reflections' spacing (fixed)
+    static constexpr double TAIL_GAIN = 0.35;   // the tail against the reflections
+    // the room's level: at the very back (mix 0.4) about −13 to −15 LU under a sustained sound, −16 to −18 LU under
+    // drums; less further forward. Mixes with reverb at −9 LU or more were all judged too wet, ~−14 LU was preferred
+    // (RESEARCH, De Man 2017): only the furthest sound comes near that.
+    static constexpr double OUT_GAIN = 0.5;
+    Ambience() : buf(N, 0.0) {
+        for (auto& a : dif) for (auto& b : a) b.assign(D, 0.0);
+        for (auto& l : line) l.assign(LN, 0.0);
+    }
+    static bool prime(int n) { if (n < 2) return false; for (int d = 2; d * d <= n; d++) if (n % d == 0) return false; return true; }
     void setup(double rate) {
         sr = rate;
         hp.set(Svf::HP, 180, 0.7071, 0, sr);
-        size = -1;
-        setSize(0.7, 5000);
-    }
-    void setSize(double s, double dampHz) {
-        damp[0].setLP(dampHz, sr); damp[1].setLP(dampHz, sr);
-        fbDamp.setLP(dampHz * 0.8, sr);
-        if (std::fabs(s - size) < 1e-3) return;
-        size = s;
-        // a short decay: the line feeds back on itself (two late taps, darker each time round), longer when bigger
-        fb = clampd(0.55 + 0.4 * (s - 0.6), 0.55, 0.75);
-        fb1 = std::min(N - 1, std::max(1, (int)(47 * s * 0.001 * sr)));
-        fb2 = std::min(N - 1, std::max(1, (int)(59 * s * 0.001 * sr)));
         for (int k = 0; k < 6; k++) {
-            tapL[k] = std::min(N - 1, std::max(1, (int)(TL[k] * s * 0.001 * sr)));
-            tapR[k] = std::min(N - 1, std::max(1, (int)(TR[k] * s * 0.001 * sr)));
+            tapL[k] = std::min(N - 1, std::max(1, (int)(TL[k] * ER_SIZE * 0.001 * sr)));
+            tapR[k] = std::min(N - 1, std::max(1, (int)(TR[k] * ER_SIZE * 0.001 * sr)));
         }
         const double dl[2][2] = {{3.1, 4.3}, {3.7, 5.1}};
         for (int c = 0; c < 2; c++) for (int k = 0; k < 2; k++) difLen[c][k] = std::min(D - 1, std::max(1, (int)(dl[c][k] * 0.001 * sr)));
+        for (int i = 0; i < NL; i++) {
+            int n = std::min(LN - 1, std::max(2, (int)(LMS[i] * 0.001 * sr)));
+            while (!prime(n) && n < LN - 1) n++;
+            for (int j = 0; j < i; j++) if (len[j] == n) { n++; while (!prime(n) && n < LN - 1) n++; }
+            len[i] = n;
+        }
+        size = -1;
+        setSize(0.7, 5000);
+    }
+    // size 0.4 … 1.2 (bigger = further back): the tail's decay, 0.2 s … 0.6 s, and how fast the highs die (dampHz)
+    void setSize(double s, double dampHz) {
+        damp[0].setLP(dampHz, sr); damp[1].setLP(dampHz, sr);
+        if (std::fabs(s - size) < 1e-3) return;
+        size = s;
+        t60 = 0.2 + 0.5 * clampd(s - 0.4, 0, 0.8);
+        const double t60hi = t60 * clampd(dampHz / 12000.0, 0.25, 0.6);
+        for (int i = 0; i < NL; i++) {
+            const double gl = std::pow(10.0, -3.0 * len[i] / (t60 * sr));
+            const double gh = std::pow(10.0, -3.0 * len[i] / (t60hi * sr));
+            const double r = gh / gl;
+            gLo[i] = gl;
+            pole[i] = (1 - r) / (1 + r);   // DC gain gl, Nyquist gain gh
+        }
     }
     void reset() {
         std::memset(buf.data(), 0, sizeof(double) * N);
         for (auto& a : dif) for (auto& b : a) std::memset(b.data(), 0, sizeof(double) * D);
-        hp.reset(); damp[0].reset(); damp[1].reset(); fbDamp.reset();
-        w = dw = 0;
+        for (auto& l : line) std::memset(l.data(), 0, sizeof(double) * LN);
+        for (int i = 0; i < NL; i++) { lz[i] = 0; fbOut[i] = 0; }
+        hp.reset(); damp[0].reset(); damp[1].reset();
+        w = dw = lw = 0;
     }
+    // the input at this sample: the reflections' line and the tail (the tail always runs, so turning the room on
+    // never starts from silence)
     inline void write(double mid) {
-        const double back = 0.5 * (buf[(size_t)((w - fb1) & (N - 1))] + buf[(size_t)((w - fb2) & (N - 1))]);
-        buf[(size_t)w] = hp.tick(mid) + fb * fbDamp.lp(back);
+        const double x = hp.tick(mid);
+        buf[(size_t)w] = x;
+        // the lines' outputs, through their loss filters
+        double v[NL];
+        for (int i = 0; i < NL; i++) {
+            const double y = line[i][(size_t)((lw - len[i]) & (LN - 1))];
+            lz[i] = gLo[i] * (1 - pole[i]) * y + pole[i] * lz[i];
+            if (std::fabs(lz[i]) < 1e-25) lz[i] = 0;
+            v[i] = lz[i];
+            fbOut[i] = v[i];
+        }
+        // 16x16 Hadamard (fast Walsh-Hadamard), scaled to stay lossless: the losses live in the filters
+        for (int h = 1; h < NL; h <<= 1)
+            for (int i = 0; i < NL; i += h << 1)
+                for (int j = i; j < i + h; j++) { const double a = v[j], b = v[j + h]; v[j] = a + b; v[j + h] = a - b; }
+        const double sc = 1.0 / std::sqrt((double)NL);
+        static constexpr double IN[NL] = {1, -1, 1, 1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, -1, 1};
+        for (int i = 0; i < NL; i++) line[i][(size_t)lw] = v[i] * sc + 0.5 * IN[i] * x;
     }
-    inline double allpass(std::vector<double>& b, int len, double x) {
-        const double y = b[(size_t)((dw - len) & (D - 1))];
+    inline double allpass(std::vector<double>& b, int dlen, double x) {
+        const double y = b[(size_t)((dw - dlen) & (D - 1))];
         const double v = x + 0.5 * y;
         b[(size_t)dw] = v;
         return y - 0.5 * v;
     }
-    // the reflections at this sample (call after write); advances the lines
+    // the room at this sample (call after write); advances the lines
     inline void read(double& wl, double& wr) {
         double l = 0, r = 0;
         for (int k = 0; k < 6; k++) {
             l += G[k] * buf[(size_t)((w - tapL[k]) & (N - 1))];
             r += G[k] * buf[(size_t)((w - tapR[k]) & (N - 1))];
         }
-        l = damp[0].lp(l); r = damp[1].lp(r);
+        static constexpr double OL[NL] = {1, 1, -1, 1, -1, -1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1},
+                                OR[NL] = {1, -1, 1, 1, 1, -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1};
+        double tl = 0, tr = 0;
+        for (int i = 0; i < NL; i++) { tl += OL[i] * fbOut[i]; tr += OR[i] * fbOut[i]; }
+        // the diffuser smears the reflections only; the tail is already dense (diffusing it again adds a short echo)
         l = allpass(dif[0][1], difLen[0][1], allpass(dif[0][0], difLen[0][0], l));
         r = allpass(dif[1][1], difLen[1][1], allpass(dif[1][0], difLen[1][0], r));
-        wl = l; wr = r;
+        l = damp[0].lp(l + TAIL_GAIN * tl); r = damp[1].lp(r + TAIL_GAIN * tr);
+        wl = OUT_GAIN * l; wr = OUT_GAIN * r;
     }
-    inline void advance() { w = (w + 1) & (N - 1); dw = (dw + 1) & (D - 1); }
+    inline void advance() { w = (w + 1) & (N - 1); dw = (dw + 1) & (D - 1); lw = (lw + 1) & (LN - 1); }
 };
 
 }  // namespace lg

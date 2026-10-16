@@ -1,6 +1,7 @@
 // Lifegiver: the audio thread. Runs Listen's capture on the input and the processing chain on the plan the main
 // thread hands over (with Scale and the Average mode), then blends: Amount (0 % = the input, bit for bit) and Compare (the input at the plan's intended
-// stage level, so before/after is loudness-matched).
+// stage level, so before/after is loudness-matched), and last the user's Gain (16d; 0 dB = exactly ×1, on both sides
+// of Compare). The chain matches its own level to the input here (live level match); offline renders don't.
 //
 // Thread rules (CONVENTIONS): process() never allocates, locks or frees.
 //   - continuous values (Amount, Compare, its level): atomics, latest value wins, read once per block;
@@ -34,7 +35,7 @@ public:
     Ring<Report, 128> reps;     // audio -> main
     Capture capture;            // Listen
 
-    Processor() { amount.reset(1.0); cmp.reset(0.0); cmpGain.reset(1.0); chain.reset(Plan(), sr); }
+    Processor() { amount.reset(1.0); cmp.reset(0.0); cmpGain.reset(1.0); outGain.reset(1.0); chain.setLiveMatch(true); chain.reset(Plan(), sr); }
     ~Processor() { delete plan; }
 
     // Main thread → audio thread, any time, any rate.
@@ -42,6 +43,8 @@ public:
     // Scale (0 … 4, 1 = the plan) and the Average mode: read by the chain once per block (it glides them itself)
     void setScale(double s) { scaleTarget.store(s < 0 ? 0 : (s > SCALE_MAX ? SCALE_MAX : s), std::memory_order_relaxed); }
     void setAverage(bool on) { averageTarget.store(on, std::memory_order_relaxed); }
+    // the user's Gain, −12 … +12 dB, the very last stage
+    void setGain(double db) { gainTarget.store(dbToLin(db < -12 ? -12 : (db > 12 ? 12 : db)), std::memory_order_relaxed); }
     void setCompare(bool on, double levelDb) {
         compareTarget.store(on ? 1.0 : 0.0, std::memory_order_relaxed);
         compareLevel.store(dbToLin(levelDb), std::memory_order_relaxed);
@@ -60,6 +63,7 @@ public:
         amount.setTime(SMOOTH_TAU, sr);
         cmp.setTime(COMPARE_TAU, sr);
         cmpGain.setTime(SMOOTH_TAU, sr);
+        outGain.setTime(SMOOTH_TAU, sr);
         chain.setScale(scaleTarget.load()); chain.setAverage(averageTarget.load());
         chain.reset(plan ? *plan : Plan(), sr);
     }
@@ -70,11 +74,12 @@ public:
         drainCommands(first);
         const double at = amountTarget.load(std::memory_order_relaxed);
         const double ct = compareTarget.load(std::memory_order_relaxed), cg = compareLevel.load(std::memory_order_relaxed);
+        const double og = gainTarget.load(std::memory_order_relaxed);
         if (first) {
-            amount.reset(at); cmp.reset(ct); cmpGain.reset(cg);
+            amount.reset(at); cmp.reset(ct); cmpGain.reset(cg); outGain.reset(og);
             running = true;
         }
-        amount.set(at); cmp.set(ct); cmpGain.set(cg);
+        amount.set(at); cmp.set(ct); cmpGain.set(cg); outGain.set(og);
         chain.setScale(scaleTarget.load(std::memory_order_relaxed));
         chain.setAverage(averageTarget.load(std::memory_order_relaxed));
         capture.process(inL, inR, n, sr);
@@ -94,8 +99,9 @@ public:
                     if (c >= 1.0) { L = bl; R = br; }
                     else { L += c * (bl - L); R += c * (br - R); }
                 }
-                outL[o + i] = L;
-                outR[o + i] = R;
+                const double og2 = outGain.next();
+                outL[o + i] = og2 == 1.0 ? L : L * og2;   // 0 dB: exactly the signal
+                outR[o + i] = og2 == 1.0 ? R : R * og2;
             }
         }
     }
@@ -106,9 +112,9 @@ public:
 private:
     double sr = 44100.0;
     bool running = false;
-    std::atomic<double> amountTarget{1.0}, compareTarget{0.0}, compareLevel{1.0}, scaleTarget{1.0};
+    std::atomic<double> amountTarget{1.0}, compareTarget{0.0}, compareLevel{1.0}, scaleTarget{1.0}, gainTarget{1.0};
     std::atomic<bool> averageTarget{false};
-    Smoother amount, cmp, cmpGain;
+    Smoother amount, cmp, cmpGain, outGain;
     Chain chain;
     Plan* plan = nullptr;
 

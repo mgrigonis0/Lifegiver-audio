@@ -22,8 +22,9 @@ static double rmsDb(const std::vector<double>& x, size_t from, size_t to) {
     for (size_t i = from; i < to; i++) s += x[i] * x[i];
     return powToDb(s / std::max<size_t>(to - from, 1) + 1e-30);
 }
-static Stereo renderScaled(const Plan& p, const Stereo& in, double sr, double scale, bool average = false) {
+static Stereo renderScaled(const Plan& p, const Stereo& in, double sr, double scale, bool average = false, bool live = false) {
     Chain ch;
+    ch.setLiveMatch(live);   // the device's live level match (on the audio thread)
     ch.setScale(scale);
     ch.setAverage(average);
     ch.reset(p, sr);
@@ -149,10 +150,26 @@ static void testModules() {
         std::printf("    second saturation: H3 %.1f dBc\n", h3);
         fails += expect(h3 > -45, "the post saturation adds harmonics");
     }
-    // ambience: further back = more tail (on short hits and on a pluck)
+    // ambience: further back = a short room. On a pluck the tail measure grows; on drums the room is too short to move
+    // it (a hit's decay is measured within its first tens of ms), so there: the gaps between the hits fill a little.
     {
         bool longer = true;
+        // how loud the room is at the very back, against the dry sound (BS.1770): present, but well under the sound
+        // (mixes with reverb at −9 LU or more were all judged too wet; RESEARCH)
         for (const char* nm : {"drums", "pluck"}) {
+            const Audio a = sig::byName(nm, 3);
+            Plan p;
+            p[P_AMB_MIX] = ambMixFor(0.0); p[P_AMB_SIZE] = ambSizeFor(0.0);
+            Stereo o = renderChain(p, fromAudio(a), a.sr);
+            Audio room = a;
+            for (size_t i = 0; i < a.size(); i++) { room.l[i] = (float)(o.l[i] - a.l[i]); room.r[i] = (float)(o.r[i] - a.r[i]); }
+            std::vector<double> b0, b1;
+            loudnessBlocks(a, b0); loudnessBlocks(room, b1);
+            const double lu = integratedLoudness(b1) - integratedLoudness(b0);
+            std::printf("    the room at the very back (mix %.2f), %s: %+.1f LU under the dry sound\n", p[P_AMB_MIX], nm, lu);
+            longer = longer && lu > -24 && lu < -10;
+        }
+        for (const char* nm : {"pluck"}) {
             const Audio a = sig::byName(nm, 3);
             const Ref ref = makeRef(a);
             Plan p;
@@ -165,7 +182,59 @@ static void testModules() {
             std::printf("    ambience at the back (mix %.2f), %s: Tail %.1f → %.1f dB\n", p[P_AMB_MIX], nm, t0, t1);
             longer = longer && t1 > t0 + 0.7;
         }
-        fails += expect(longer && ambMixFor(0.8) == 0.0, "the ambience lengthens the tail at the back; none in the front half");
+        fails += expect(longer && ambMixFor(0.8) == 0.0, "the ambience adds a short room at the back (-24 … -10 LU, a tail grows); none in the front half");
+        // dragged back and forth on the stage (the room wakes, fades, sleeps, wakes again): no clicks
+        {
+            Chain ch;
+            Plan front, back;
+            back[P_AMB_MIX] = ambMixFor(0.0); back[P_AMB_SIZE] = ambSizeFor(0.0);
+            ch.reset(front, sr);
+            std::vector<double> L((size_t)(8 * sr)), R(L.size());
+            for (size_t i = 0; i < L.size(); i++) L[i] = R[i] = 0.4 * std::sin(2 * kPi * 70 * i / sr);
+            const double at[] = {0.5, 1.0, 3.5, 3.6, 3.7, 5.0, 7.5};   // includes waking after a full sleep (> 1.5 s)
+            size_t next = 0;
+            bool toBack = true;
+            for (size_t d = 0; d < L.size(); d += 64) {
+                if (next < 7 && d >= (size_t)(at[next] * sr)) { ch.setTarget(toBack ? back : front); toBack = !toBack; next++; }
+                const long n = (long)std::min<size_t>(64, L.size() - d);
+                ch.process(L.data() + d, R.data() + d, L.data() + d, R.data() + d, n);
+            }
+            const ClickStats cs = findClicks(L);
+            std::printf("    the stage dragged front <-> back 7 times (the room wakes and sleeps), low tone: clicks %ld\n", cs.count);
+            fails += expect(cs.count == 0, "the room wakes and sleeps without clicks");
+        }
+        // the room's tail is colourless: no ringing pitch (16c's comb rang 20-40 dB over its neighbours)
+        {
+            Ambience amb; amb.setup(sr); amb.reset(); amb.setSize(1.1, 7000 - 3000 * 1.1);
+            const int n = (int)(1.2 * sr);
+            std::vector<double> x((size_t)n);
+            for (int i = 0; i < n; i++) { amb.write(i == 0 ? 1.0 : 0.0); double l, r; amb.read(l, r); amb.advance(); x[(size_t)i] = l; }
+            // spectrum of the tail (60 ms .. 560 ms), 4 Hz steps 200 Hz .. 4 kHz; peaks over the median of their 1/3 octave
+            const int s0 = (int)(0.06 * sr), s1 = (int)(0.56 * sr);
+            std::vector<double> db;
+            for (double f = 200; f <= 4000; f += 4) {
+                double re = 0, im = 0;
+                for (int i = s0; i < s1; i++) {
+                    const double wnd = 0.5 - 0.5 * std::cos(2 * kPi * (i - s0) / (s1 - s0)), ph = 2 * kPi * f * i / sr;
+                    re += wnd * x[(size_t)i] * std::cos(ph); im += wnd * x[(size_t)i] * std::sin(ph);
+                }
+                db.push_back(10 * std::log10(re * re + im * im + 1e-30));
+            }
+            int over = 0;
+            double worst = -99;
+            for (size_t k = 0; k < db.size(); k++) {
+                const double f = 200 + 4.0 * k;
+                std::vector<double> nb;
+                for (size_t j = 0; j < db.size(); j++) { const double g = 200 + 4.0 * j; if (g >= f / 1.12 && g <= f * 1.12) nb.push_back(db[j]); }
+                std::nth_element(nb.begin(), nb.begin() + (long)(nb.size() / 2), nb.end());
+                const double ex = db[k] - nb[nb.size() / 2];
+                worst = std::max(worst, ex);
+                if (ex > 12) over++;
+            }
+            const double share = 100.0 * over / (double)db.size();
+            std::printf("    the room's tail: %.2f %% of the spectrum rings > 12 dB over its neighbours, worst %+.1f dB (decaying noise: ~0 %%, ~+11 dB)\n", share, worst);
+            fails += expect(share < 0.5 && worst < 16, "the room's tail doesn't ring (no pitch builds up)");
+        }
     }
     // Scale
     {
@@ -194,12 +263,24 @@ static void testModules() {
         Plan hard; hard[P_SAT_DRIVE] = 1; hard[P_SAT_REF] = 0.3; hard[P_BITE_DB] = 8; hard[P_WEIGHT_DB] = 6; hard[P_COMP_AMT] = 1; hard[P_COMP_THR] = -20;
         Stereo l = noiseSig(6.0, sr, 4);
         for (size_t i = 0; i < l.size(); i++) { l.l[i] *= 0.5; l.r[i] *= 0.5; }
-        Stereo o = renderScaled(hard, l, sr, 4.0);
+        Stereo o = renderScaled(hard, l, sr, 4.0, false, true);
         double pk = 0;
         for (size_t i = 0; i < o.size(); i++) pk = std::max(pk, std::max(std::fabs(o.l[i]), std::fabs(o.r[i])));
-        const double lv = rmsDb(o.l, (size_t)(4 * sr), o.size()) - rmsDb(l.l, (size_t)(4 * sr), l.size());
-        std::printf("    Scale 400 %% on loud noise: peak %.3f, level %+.1f dB vs the input\n", pk, lv);
-        fails += expect(pk <= 1.0 && std::fabs(lv) < 2, "Scale 400 %: level matched to the input, peaks under 0 dBFS");
+        // matched by loudness (BS.1770, as the device measures it), over the last 2 s: at +32 dB of Bite the spectrum
+        // tilts so far that plain RMS and loudness disagree by several dB
+        auto lastLufs = [&](const Stereo& x) {
+            Audio t; t.sr = sr;
+            for (size_t i = (size_t)(4 * sr); i < x.size(); i++) { t.l.push_back((float)x.l[i]); t.r.push_back((float)x.r[i]); }
+            std::vector<double> bl; loudnessBlocks(t, bl); return integratedLoudness(bl);
+        };
+        // at a normal level the loudness is matched; on loud noise the safety ceiling has the last word (peaks under
+        // 0 dBFS beat the match: the match is measured before the ceiling, so it can't chase it)
+        Stereo q = noiseSig(6.0, sr, 5);
+        for (size_t i = 0; i < q.size(); i++) { q.l[i] *= 0.05; q.r[i] *= 0.05; }
+        const Stereo oq = renderScaled(hard, q, sr, 4.0, false, true);
+        const double lv = lastLufs(oq) - lastLufs(q);
+        std::printf("    Scale 400 %%: on noise at %.1f LUFS the output is %+.1f LU vs the input; on loud noise the peak is %.3f\n", lastLufs(q), lv, pk);
+        fails += expect(pk <= 1.0 && std::fabs(lv) < 1, "Scale 400 %: loudness matched to the input, peaks under 0 dBFS");
         // automation of Scale on a low tone: no clicks
         Stereo t;
         t.l.resize((size_t)(4 * sr)); t.r.resize(t.l.size());

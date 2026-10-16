@@ -34,34 +34,25 @@ Drag `Lifegiver.amxd` from that folder onto an audio track that plays something.
 The Max window (open the device editor, then Cmd+M) shows two lines when everything loaded:
 
 ```
-lifegiver: engine 2026-10-16a ready, device ...
-lifegiver: patch 2026-10-16a
+lifegiver: engine 2026-10-17a ready, device ...
+lifegiver: patch 2026-10-17a
 ```
 
 and, a moment later, `lifegiver: new device, id ....` (or `state restored, id ....` in a saved set).
 A red `lifegiver~` box or no sound: copy the red lines from the Max window and send them.
 
-## This build (2026-10-16c): what to check
+## This build (2026-10-17a): what to check
 
-New since 16b: the rest of the sound tools (dynamic EQ, resonance tamer, smoothing, multiband, a second saturation
-after the dynamics, a short room for distance), **Scale** (0–400 %) next to Amount, a **Dyn | Avg** switch, and roles no
-longer move the pan. 16b wasn't tested on its own, so its checks are folded in here.
+New since 16c: a new **room** (the ringing notes behind the drums are gone), the output now **always matches the
+input's loudness** (A–E at 100 % no longer jumps up), and a **Gain** bar under Compare.
 
-1. **Listen:** press **Arm**, play the part (it stops by itself after ~4 s of sound). The sound changes a few seconds
-   later; the rest of the tools are measured in the background right after.
-2. **Characters A–E** (A Polish, B Warm, C Bold, D Vintage, E Driven: subtle → strong). All at 0 % = no character.
-   Compare E at 100 % with all at 0 %, then A–D one at a time: do they get stronger from A to E? A letter auditions it
-   alone (click again to stop).
-3. **Scale:** 0 % = no shaping (your placement stays), 100 % = as planned, up to 400 %. Past 100 % the level is
-   matched to the input and the peaks never pass 0 dB. Try 300–400 % for the "collapse" sounds.
-4. **Dyn | Avg** (under the knobs): Avg holds the dynamic tools at their average. Switch while playing: no clicks.
-5. **Stage:** pick a few roles: the pan stays where you put it. Drag a sound to the back: you should hear a little room.
-6. **Knobs:** Air on a dull sound (bass, pad) moves a little; Texture down smooths grit a little (it can't take
-   steady noise out of a held note yet).
-7. **Moves:** new lines (e.g. "Easing harshness", "Taming 2 rings", "Holding lows", "Room"); click the list for the
-   next page. In Avg the dynamic ones say "held".
-8. **Save and reopen:** the knobs, A–E and Scale still work after reopening, without listening again.
-9. **CPU:** put Lifegiver on 4–6 tracks and tell me what Live's CPU meter says.
+1. **Room:** put a drum loop at the back of the stage. You should hear a short, soft space behind it: no held notes,
+   no metallic ring. Drag it back and forth while it plays: no clicks.
+2. **A–E at 100 %:** turn one up while playing. The level should stay about where it was. Right after a big move it
+   can take up to a second to settle; that's normal.
+3. **Gain:** drag the bar under Compare (centre = 0 dB, −12 … +12 dB); double-click puts it back to 0.
+4. **A set saved with 16c:** reopen it. It plays the new room and is level-matched; knobs and A–E still work.
+5. **CPU:** Lifegiver on 4–6 tracks, and what Live's CPU meter says.
+6. Anything from the 16c list you didn't get to (Scale 300–400 %, Dyn | Avg switching, the Moves lines).
 
-Sets saved with 16a/16b open and keep their sound exactly (the new tools start off until you change something or
-listen again). Send the Max window lines if anything looks wrong, and say what you hear.
+Send the Max window lines if anything looks wrong, and say what you hear.

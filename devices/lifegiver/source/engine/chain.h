@@ -3,7 +3,7 @@
 //   low cut → EQ (Weight shelf, Warm bell, Bite bell, Air shelf) → tilt → resonance tamer (4 dynamic notches)
 //   → dynamic EQ (Warm, Bite: cut when the band builds up) → saturation (pre) → compressor/expander → multiband
 //   → transient shaper → high smoothing → saturation (post) → high cut → ambience → stereo stage (width: lows never
-//   widened; true pan: lows stay put) → make-up + stage level → (Scale > 100 %) level match + safety ceiling
+//   widened; true pan: lows stay put) → level match + stage level → (Scale > 100 %) safety ceiling
 //
 // The same class runs on the audio thread (the device) and on the worker (closed-loop renders of the takes), so what
 // the solver measures is exactly what plays. All filters are IIR, minimum phase: zero latency.
@@ -12,8 +12,14 @@
 // new plan never clicks. process() never allocates.
 //
 // Scale (0 … 4, 1 = the plan): multiplies the shaping (EQ, tilt, saturation, dynamics, transients, dynamic EQ,
-// smoothing, multiband), not the placement (cuts, Clean, stage, ambience). Above 1 the level is matched to the input
-// (slowly) and a soft ceiling keeps the peaks under 0 dBFS; both fade in between 100 % and 200 %.
+// smoothing, multiband), not the placement (cuts, Clean, stage, ambience). Above 1 a soft ceiling keeps the peaks under
+// 0 dBFS (it fades in between 100 % and 200 %).
+// Level match (16d, on the audio thread only): the output's loudness follows the input's at any setting. The plan's
+// make-up (from the solve) is where it starts; then the chain measures both sides itself (BS.1770 K-weighting, 100 ms
+// blocks, only while the input sounds) and glides to the measured make-up. The fast path's make-up after a knob or
+// character move could miss by 3 dB and more (16c); the measurement can't. Slow on purpose (a window of seconds,
+// S-shaped glides) so it never flattens the music's own swells. Off for the solver's renders, which measure loudness
+// themselves.
 // Average mode: the dynamic modules (dynamic EQ, tamer, smoothing, multiband) stop following the sound and hold their
 // average gain (measured when the plan was solved, saved in the plan): no detectors run.
 #pragma once
@@ -21,6 +27,7 @@
 #include <cstring>
 
 #include "dsp.h"
+#include "measure.h"
 #include "modules.h"
 #include "smooth.h"
 
@@ -82,6 +89,76 @@ static const ScaleRange SCALED[] = {
 // what the chain measured about its dynamic modules (their unit gains, averaged over the sound)
 struct ChainStats { double avg[NAVG]; };
 
+// The live level match (16d): the make-up that makes the output as loud as the input, measured as the sound plays.
+// Both sides K-weighted (BS.1770), stereo powers summed, 100 ms blocks; a block counts only while the input sounds
+// (above −60 LUFS and within 20 dB of its running level), so silence and tails never move it. The plan's own make-up
+// acts at once; the measured correction on top glides (two stages of 0.25 s: S-shaped, no step). After a new plan the
+// first 0.4 s of sound settle a fresh estimate (until then the last correction holds); then a window of ~4 s.
+struct LevelMatch {
+    struct Bq {
+        double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+        void from(const Biquad& q) { b0 = q.b0; b1 = q.b1; b2 = q.b2; a1 = q.a1; a2 = q.a2; z1 = z2 = 0; }
+        inline double tick(double x) {
+            const double y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            if (std::fabs(z1) < 1e-25) z1 = 0;
+            if (std::fabs(z2) < 1e-25) z2 = 0;
+            return y;
+        }
+    };
+    Bq kIn[2][2], kOut[2][2];
+    double accIn = 0, accOut = 0, eIn = 0, eOut = 0, inLong = 0;
+    long cnt = 0, blockLen = 4800;
+    int blocks = 0;
+    bool have = false;
+    double est = 0, residual = 0, g1 = 0, g2 = 0, a = 1;
+    static constexpr double GATE_POW = 8.5e-7;   // −60 LUFS as a K-weighted power (−0.691 + 10 log10 p = −60)
+
+    void setup(double sr) {
+        Biquad sh, hp;
+        kWeighting(sr, sh, hp);
+        for (int c = 0; c < 2; c++) { kIn[c][0].from(sh); kIn[c][1].from(hp); kOut[c][0].from(sh); kOut[c][1].from(hp); }
+        blockLen = std::max(1L, (long)(0.1 * sr));
+        a = coefFor(250, sr / CTRL_BLOCK);
+        accIn = accOut = eIn = eOut = inLong = 0; cnt = 0; blocks = 0;
+        have = false; fresh = false; est = residual = g1 = g2 = 0;
+    }
+    void restart() { blocks = 0; }   // a new plan: measure afresh (the last error carries over meanwhile)
+    void clear() { blocks = 0; have = false; fresh = false; residual = g1 = g2 = 0; eIn = eOut = 0; }
+    inline void in(double L, double R) {
+        const double l = kIn[0][1].tick(kIn[0][0].tick(L)), r = kIn[1][1].tick(kIn[1][0].tick(R));
+        accIn += l * l + r * r;
+    }
+    inline void out(double L, double R) {
+        const double l = kOut[0][1].tick(kOut[0][0].tick(L)), r = kOut[1][1].tick(kOut[1][0].tick(R));
+        accOut += l * l + r * r;
+        if (++cnt >= blockLen) block();
+    }
+    void block() {
+        const double pin = accIn / (double)cnt, pout = accOut / (double)cnt;
+        accIn = accOut = 0; cnt = 0;
+        if (pin < GATE_POW || (inLong > 0 && pin < 0.01 * inLong)) return;
+        inLong = inLong > 0 ? inLong + 0.05 * (pin - inLong) : pin;
+        blocks++;
+        const double w = std::max(1.0 / blocks, 0.025);
+        eIn += w * (pin - eIn); eOut += w * (pout - eOut);
+        if (blocks >= 4 && eOut > 1e-20 && eIn > 1e-20) { est = clampd(powToDb(eIn / eOut), -36, 36); fresh = true; }
+    }
+    bool fresh = false;
+    // every control block. The plan's make-up (with Scale applied) acts at once, as the plan glides; what glides slowly
+    // is only the correction on top: measured make-up − plan's. After a new plan, until it is measured afresh, the last
+    // correction carries over.
+    void tick(double planMk) {
+        if (fresh && blocks >= 4) { residual = clampd(est - planMk, -36, 36); have = true; }
+        if (!have) return;
+        g1 += a * (residual - g1);
+        g2 += a * (g1 - g2);
+    }
+    double makeup(double planMk) const { return planMk + (have ? g2 : 0.0); }
+};
+
+
 class Chain {
 public:
     // Before the first block (or for an offline render): everything jumps to `p`, filter memories cleared.
@@ -108,15 +185,24 @@ public:
         for (auto& b : dyn) { b.reset(); b.stat.clear(); }
         smooth.reset(); smooth.stat.clear(); smooth.setup(sr, cr);
         mb.reset(); for (auto& s : mb.stat) s.clear();
-        amb.reset(); amb.setup(sr);
-        lvIn.set(1500, 1500, sr); lvOut.set(1500, 1500, sr); lvIn.reset(); lvOut.reset();
-        levelMatch = 0;
+        amb.reset(); amb.setup(sr); ambRun = false; ambIdle = 0;
+        lm.setup(sr);
+        liveMatch = liveMatchOn;
         coefsReady = false;
         ctr = 0;
         updateCoefs();
         gainSm.reset(gainTarget());
     }
-    void setTarget(const Plan& p) { for (int i = 0; i < NP; i++) sm[i].set(p[i]); }
+    void setTarget(const Plan& p) {
+        for (int i = 0; i < NP; i++) sm[i].set(p[i]);
+        // a pass-through plan (no takes): no correction either, so the output is exactly the input (the gain's own
+        // 4 ms S-glide keeps it click-free)
+        bool neutral = true;
+        const Plan none;
+        for (int i = 0; i < NP && neutral; i++) neutral = p[i] == none[i];
+        if (neutral) lm.clear(); else lm.restart();
+    }
+    void setLiveMatch(bool on) { liveMatchOn = on; liveMatch = on; }
     void setScale(double s) { scaleTarget = clampd(s, 0, SCALE_MAX); scaleSm.set(scaleTarget); }
     void setAverage(bool on) { avgTarget = on ? 1.0 : 0.0; avgSm.set(avgTarget); }
     const double* current() const { return cur; }
@@ -134,7 +220,7 @@ public:
             if (ctr == 0) controlTick();
             ctr = (ctr + 1) % CTRL_BLOCK;
             double L = inL[i], R = inR[i];
-            { const double m = 0.5 * (L + R); lvIn.tick(m * m); }
+            if (liveMatch) lm.in(L, R);
 
             // low cut (dry/wet: at "off" the input passes untouched)
             if (cur[P_LOWCUT_ON] > 0) {
@@ -242,14 +328,17 @@ public:
                 const double ll = highcut[0].tick(L), lr = highcut[1].tick(R);
                 L += on * (ll - L); R += on * (lr - R);
             }
-            // ambience: the line always runs (cheap), the reflections are added only when asked
-            amb.write(0.5 * (L + R));
-            if (ambMix > 0) {
-                double wl, wr;
-                amb.read(wl, wr);
-                L += ambMix * wl; R += ambMix * wr;
+            // ambience: runs while the room is asked for and 1.5 s after (its tail dies out); asleep in the front half
+            // of the stage (it starts from empty lines when asked again: no ghost of old audio)
+            if (ambRun) {
+                amb.write(0.5 * (L + R));
+                if (ambMix > 0) {
+                    double wl, wr;
+                    amb.read(wl, wr);
+                    L += ambMix * wl; R += ambMix * wr;
+                }
+                amb.advance();
             }
-            amb.advance();
             // stereo stage: a Linkwitz-Riley split at P_MONO_HZ (the bands sum to an all-pass: no colour). Width acts
             // on mid/side (the lows are never widened); the true pan moves the highs of both channels (the lows
             // stay where they are). The section fades in and out (S-shaped) when it starts or stops being needed,
@@ -269,7 +358,7 @@ public:
                 if (st >= 1.0) { L = sL; R = sR; }
                 else { L += st * (sL - L); R += st * (sR - R); }
             }
-            { const double m = 0.5 * (L + R); lvOut.tick(m * m); }
+            if (liveMatch) lm.out(L, R);
             const double g = gainSm.next();
             L *= g; R *= g;
             // safety ceiling (only when Scale is past 100 %): soft above −1 dBFS, never above 0 dBFS
@@ -298,12 +387,15 @@ private:
     HiSmooth smooth;
     Multiband mb;
     Ambience amb;
-    MsFollow lvIn, lvOut;
-    double levelMatch = 0, ceilB = 0;
+    LevelMatch lm;
+    bool liveMatch = false, liveMatchOn = false;
+    double ceilB = 0;
     double tsGain = 0, tsGainC = 1, tsA = 0, tsS = 0;
     double compY1 = 0, compYL = 0, expY1 = 0, expYL = 0;
     double compAttC = 0, compRelC = 0, expAttC = 0, expRelC = 0, compRatio = 1, expRatio = 1, compMix = 1, compThr = -20;
     double satG = 1, satB = 0, satMix = 0, sat2G = 1, sat2Mix = 0, ambMix = 0;
+    bool ambRun = false;
+    long ambIdle = 0;
     double panP = 0, panC = 1, panS = 0;
     bool eqActive = false, eqOn[4] = {false, false, false, false}, tiltOn = false, dynOn = false, tsOn = false;
     bool resActive = false, resUsed[4] = {false, false, false, false}, dynActive = false, dynUsed[2] = {false, false};
@@ -320,8 +412,7 @@ private:
     }
     double gainTarget() const {
         const double mk = cur[P_MAKEUP_DB] * std::min(scale, 1.0);
-        const double b = clampd(scale - 1, 0, 1);
-        return dbToLin(cur[P_STAGE_DB] + (1 - b) * mk + b * levelMatch);
+        return dbToLin(cur[P_STAGE_DB] + (liveMatch ? lm.makeup(mk) : mk));
     }
 
     void controlTick() {
@@ -333,11 +424,13 @@ private:
         if (!avgSm.settled()) avgBlend = avgSm.next();
         if (moving || !coefsReady) updateCoefs();
         dynamicTick();
-        // the level match (Scale above 100 %): the input's level over the output's, while there is sound
         const double b = clampd(scale - 1, 0, 1);
-        if (b > 0 && lvIn.y > 1e-7 && lvOut.y > 1e-12) levelMatch = clampd(powToDb(lvIn.y / lvOut.y), -36, 36);
         ceilB = b;
-        if (b > 0 || moving) gainSm.set(gainTarget());
+        // the room wakes when asked (clearing its lines: a memset, no allocation) and sleeps 1.5 s after the last ask
+        if (ambMix > 0) { if (!ambRun) { amb.reset(); ambRun = true; } ambIdle = 0; }
+        else if (ambRun && ++ambIdle > (long)(1.5 * sr / CTRL_BLOCK)) ambRun = false;
+        if (liveMatch) lm.tick(cur[P_MAKEUP_DB] * std::min(scale, 1.0));
+        if (liveMatch || moving) gainSm.set(gainTarget());
         // a module whose amounts reached exactly 0 switches off once its own glide (gain memory) has died out
         if (tsOn && tsA == 0.0 && tsS == 0.0 && std::fabs(tsGain) < 1e-4) { tsOn = false; tsGain = 0; }   // < 0.0001 dB: inaudible
         if (dynOn && compRatio <= 1.0001 && expRatio <= 1.0001 && compYL < 1e-4 && expYL < 1e-4) {
