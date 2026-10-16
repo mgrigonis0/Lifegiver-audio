@@ -105,8 +105,8 @@ inline double logcosh(double u) {
 // the residual y - x is only the distortion. Evaluated with first-order ADAA on u = G x + b.
 struct Sat {
     double uPrev = 0, xPrev = 0;
-    OnePole dc;          // the residual's DC (from the bias) is removed
-    void reset(double sr) { uPrev = 0; xPrev = 0; dc.reset(); dc.setLP(8.0, sr); }
+    Svf dc;              // the residual's DC and sub-sonic thump (an even curve follows the notes' envelope) removed
+    void reset(double sr) { uPrev = 0; xPrev = 0; dc.reset(); dc.set(Svf::HP, 30.0, 0.7071, 0, sr); }
     // returns the residual (nonlinear part only), in the units of x
     inline double residual(double x, double G, double b) {
         const double u = G * x + b;
@@ -118,8 +118,7 @@ struct Sat {
         const double y = (f - tb) / (G * s2);
         const double lin = 0.5 * (x + xPrev);   // ADAA of the linear part: the same half-sample average
         uPrev = u; xPrev = x;
-        const double r = y - lin;
-        return r - dc.lp(r);
+        return dc.tick(y - lin);
     }
 };
 

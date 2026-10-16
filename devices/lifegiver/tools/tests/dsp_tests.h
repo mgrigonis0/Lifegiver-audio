@@ -233,19 +233,55 @@ static void testBrain() {
     Inputs tx = in;
     tx.knob[Q_BITE] = 0; tx.knob[Q_TEXTURE] = 6;
     const Solution sa = solve(*ts, p, tx, 0);
-    fails += expect(sa.tools[T_SAT] == 0 && sa.reach < 0.2, "Clean (A) adds no harmonics, and says it can't reach more grain");
+    fails += expect(sa.tools[T_SAT] == 0 && sa.reached[Q_TEXTURE] < 1, "Polish (A) adds no harmonics, so it reaches (almost) no more grain");
     const Solution sc = solve(*ts, p, tx, 2);
     fails += expect(sc.tools[T_SAT] > 0.05 && sc.reached[Q_TEXTURE] > 2, "Bold (C) adds harmonics for grain on a pitched sound");
     auto nts = makeTakeSet({sig::noise()});
     const Profile np = analyze(*nts);
     const Solution sn = solve(*nts, np, tx, 2);
     fails += expect(sn.tools[T_SAT] < 0.05, "no saturation on a noisy sound (it would make intermodulation)");
-    // nothing there to lift: not adjustable
+    // little there: only a gentle lift; nothing there: not adjustable at all
     Inputs w = in;
     w.knob[Q_BITE] = 0; w.knob[Q_WEIGHT] = 8;
     const Solution sw = solve(*ts, p, w, -1);
-    fails += expect(!sw.units.ok[Q_WEIGHT] && sw.asked[Q_WEIGHT] == 0 && std::fabs(sw.plan[P_WEIGHT_DB]) < 0.01,
-                    "a lead with no lows: Weight can't be lifted (nothing there), so nothing is boosted");
+    fails += expect(sw.units.ok[Q_WEIGHT] && sw.units.up[Q_WEIGHT] <= 3.0, "a lead with little low end: Weight only gets a gentle lift");
+    // a bass line with its top filtered away: nothing above 8 kHz
+    Audio dull = sig::bass();
+    {
+        Svf a1, a2, b1, b2;
+        a1.set(Svf::LP, 1200, 0.7071, 0, dull.sr); a2.set(Svf::LP, 1200, 0.7071, 0, dull.sr);
+        b1.set(Svf::LP, 1200, 0.7071, 0, dull.sr); b2.set(Svf::LP, 1200, 0.7071, 0, dull.sr);
+        for (size_t i = 0; i < dull.size(); i++) { dull.l[i] = (float)a2.tick(a1.tick(dull.l[i])); dull.r[i] = (float)b2.tick(b1.tick(dull.r[i])); }
+    }
+    auto pts = makeTakeSet({dull});
+    const Profile pp = analyze(*pts);
+    Inputs pa = in;
+    pa.knob[Q_BITE] = 0; pa.knob[Q_AIR] = 8;
+    const Solution spa = solve(*pts, pp, pa, -1);
+    fails += expect(!spa.units.ok[Q_AIR] && spa.asked[Q_AIR] == 0 && std::fabs(spa.plan[P_AIR_DB]) < 0.01,
+                    "a dull bass with nothing above 8 kHz: Air can't be lifted, so nothing is boosted");
+    // characters: all at 0 = none; each adds its own sound; strengths blend
+    Inputs none = in;
+    none.knob[Q_BITE] = 0;
+    double p0[NQ], pd[NQ], pb2[NQ];
+    askedPush(none, -1, p0);
+    Inputs dv = none; dv.vars[3] = 1;
+    askedPush(dv, -1, pd);
+    Inputs bl = none; bl.vars[1] = 0.5; bl.vars[4] = 0.5;
+    askedPush(bl, -1, pb2);
+    fails += expect(pd[Q_AIR] < p0[Q_AIR] - 2 && pd[Q_WARM] > p0[Q_WARM] + 1 && pd[Q_STEADY] > p0[Q_STEADY] + 2,
+                    "Vintage at 100 %: asks for a softer top, more warmth, a steadier level (on top of the stage)");
+    fails += expect(std::fabs(pb2[Q_STEADY] - p0[Q_STEADY] - (0.5 * VAR_PUSH[1][Q_STEADY] + 0.5 * VAR_PUSH[4][Q_STEADY])) < 1e-9,
+                    "a blend asks the strength-weighted sum of its characters");
+    const Solution sd = solve(*ts, p, dv, -1);
+    const Solution s0 = solve(*ts, p, none, -1);
+    fails += expect(sd.tools[T_SAT] >= 0.45 && sd.tools[T_COMP] >= 0.35 && sd.plan[P_TILT_DB] < -1 && s0.tools[T_SAT] == 0 && sd.reach > 0.7,
+                    "Vintage: its colour (harmonics, glue) always, a softer top as asked; no character adds no harmonics");
+    // the first solve knows every tool, so the fast path can answer any character later (a reopened set)
+    bool allKnown = true;
+    for (int k = 0; k < NT; k++) { bool kn = false; for (int m = 0; m < NM; m++) kn = kn || s0.J[m][k] != 0.0; if (k != T_EXP && !kn) allKnown = false; }
+    const Solution fd = fastStep(s0, p, dv, -1);
+    fails += expect(allKnown && fd.tools[T_SAT] > 0.05, "every tool's effect is measured once, so Vintage works on the fast path too");
     // the fast path goes the right way at once
     Inputs fa = in;
     fa.knob[Q_AIR] = -6;

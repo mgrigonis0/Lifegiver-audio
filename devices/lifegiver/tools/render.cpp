@@ -163,13 +163,13 @@ static int bench(const std::string& dir, const std::string& outDir) {
         const auto t1 = std::chrono::steady_clock::now();
         Solution s = solve(*ss, p, in, -1);
         const double msS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count();
-        std::printf("  solve (mix A70 C30) %.0f ms\n", msS);
+        std::printf("  solve (no character) %.0f ms\n", msS);
         printSolution(s);
         for (int v = 0; v < NVAR; v++) {
             const auto t2 = std::chrono::steady_clock::now();
             Solution sv = solve(*ss, p, in, v, &s, 5);
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t2).count();
-            std::printf("  variation %c: reach %3.0f %% (%.0f ms) tools", 'A' + v, sv.reach * 100, ms);
+            std::printf("  %c %-8s: reach %3.0f %% (%.0f ms) tools", 'A' + v, VAR_NAMES[v], sv.reach * 100, ms);
             for (int k = 0; k < NT; k++) std::printf(" %.2f", sv.tools[k]);
             std::printf("\n");
         }

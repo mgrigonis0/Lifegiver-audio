@@ -41,7 +41,8 @@ var WORDS = [
     ["", "dull", "soft top", "open", "airy"], ["", "smooth", "fine", "grainy", "rough"], ["", "soft", "firm", "punchy", "hard"],
     ["", "short", "medium", "long", "held"], ["", "jumpy", "lively", "even", "steady"]
 ];
-var ROLES = ["Lead", "Hook", "Support", "Rhythm", "Bass", "Bed", "FX"];
+var ROLES = ["Lead", "Hook", "Support", "Rhythm", "Bass", "Bed", "FX"];   // by the engine's role number
+var ROLE_ORDER = [4, 3, 1, 0, 2, 5, 6];   // as the buttons show them, top to bottom: Bass ... FX
 var VARS = ["A", "B", "C", "D", "E"], VNAMES = ["Polish", "Warm", "Bold", "Vintage", "Driven"];   // rising character
 var MOVE = ["", "Lifting lows", "Easing lows", "Warming low-mids", "Clearing low-mid mud", "Lifting presence",
     "Softening presence", "Lifting air", "Darkening top", "Tilting brighter", "Tilting darker", "Warm harmonics",
@@ -237,9 +238,9 @@ function paintStage() {
     header("stage", "STAGE", C.stage, ROLES[P.role] + " \u00b7 " + panTxt);
     var a = F.valid ? 1 : 0.3, x0 = ix("stage"), RX = rangeX();
     for (var r = 0; r < 7; r++) {
-        var on = P.role === r;
+        var role = ROLE_ORDER[r], on = P.role === role;
         box(x0, 26 + r * 15, 39, 13, 2, on ? C.stage : [0.2, 0.2, 0.2], a);
-        text(ROLES[r], x0 + 19.5, 26 + r * 15 + 9.5, 7.5, on ? [0.063, 0.125, 0.122] : [0.74, 0.74, 0.74], true, 1, 37, a);
+        text(ROLES[role], x0 + 19.5, 26 + r * 15 + 9.5, 7.5, on ? [0.063, 0.125, 0.122] : [0.74, 0.74, 0.74], true, 1, 37, a);
     }
     // the stage, seen from above: back wall at the top, the listener at the bottom
     col(C.floor, a);
@@ -389,7 +390,7 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
     }
     if (F.valid) {
         // roles
-        for (var r = 0; r < 7; r++) if (inRect(x, y, [ix("stage"), 26 + r * 15, 39, 13])) { outlet(0, "pickrole", r); return; }
+        for (var r = 0; r < 7; r++) if (inRect(x, y, [ix("stage"), 26 + r * 15, 39, 13])) { outlet(0, "pickrole", ROLE_ORDER[r]); return; }
         // stage handles, then the shape itself (hit areas in screen pixels)
         var RX = rangeX(), g = geom(), ly = (y - SY) / KY;
         var top = g.cy - g.ry * (1 + P.edge * 0.3), edgeY = top - 5 - P.edge * 14;

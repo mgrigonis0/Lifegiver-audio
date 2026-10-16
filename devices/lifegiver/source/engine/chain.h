@@ -197,8 +197,8 @@ private:
         }
         if (moving || !coefsReady) updateCoefs();
         // a module whose amounts reached exactly 0 switches off once its own glide (gain memory) has died out
-        if (tsOn && tsA == 0.0 && tsS == 0.0 && std::fabs(tsGain) < 1e-9) { tsOn = false; tsGain = 0; }
-        if (dynOn && compRatio <= 1.0001 && expRatio <= 1.0001 && compYL < 1e-9 && expYL < 1e-9) {
+        if (tsOn && tsA == 0.0 && tsS == 0.0 && std::fabs(tsGain) < 1e-4) { tsOn = false; tsGain = 0; }   // < 0.0001 dB: inaudible
+        if (dynOn && compRatio <= 1.0001 && expRatio <= 1.0001 && compYL < 1e-4 && expYL < 1e-4) {
             dynOn = false; compY1 = compYL = expY1 = expYL = 0;
         }
     }

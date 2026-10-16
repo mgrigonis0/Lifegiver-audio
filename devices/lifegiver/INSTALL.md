@@ -41,19 +41,21 @@ lifegiver: patch 2026-10-16a
 and, a moment later, `lifegiver: new device, id ....` (or `state restored, id ....` in a saved set).
 A red `lifegiver~` box or no sound: copy the red lines from the Max window and send them.
 
-## This build (2026-10-16a): what to check
+## This build (2026-10-16b): what to check
 
-The first build that shapes sound: Listen, the reading, the stage, the knobs, the tools, Moves and the A–E mix.
+Changes since 16a: no take audio is kept (nothing is written to your computer); A–E are characters of rising strength;
+a narrower strip (706 px); Moves pages; Air and the other tone knobs work on dull sounds; Stage roles in a new order.
 
-1. **Before Listen:** the sound passes untouched; the stage says "Listen first".
-2. **Listen:** press **Arm**, play the part (it starts at the first sound and stops by itself after ~4 s of sound).
-   Up to 4 takes; a take's **x** removes it. Listen shows the notes heard and how sure it is; the knobs show the
-   reading in words.
-3. **Role and stage:** click a role (Lead, Bass, …): the shape drops into its place. Drag the shape (pan, distance),
-   its side handles (width), the top handle (edge), the range strip's handles. Moves lists what it does.
-4. **Knobs:** drag up/down (Shift = fine, double-click = 0). The teal arc is what the stage asks.
-5. **A–E:** the bars set each strategy's strength; a letter auditions it alone (click again to stop).
-6. **Amount** (0 % = the original), **Compare** (the original, level-matched), **Clean**.
-7. **Save and reopen:** the reading and the sound come back exactly (the takes don't: "re-listen to refine").
+1. **Listen:** press **Arm**, play the part (it stops by itself after ~4 s of sound). The first solve measures what
+   every tool does to this sound (a few seconds; the Max window says when it is done).
+2. **Characters A–E** (A Polish, B Warm, C Bold, D Vintage, E Driven: subtle → strong). All at 0 % = no character
+   (the default, only what the stage and knobs ask). Raise one to hear its colour; blend several. A letter auditions
+   it alone (click again to stop). Try E at 100 % vs all at 0 %: the difference should be clear.
+3. **Knobs:** Air on a dull sound (bass, pad) should now move (a gentle lift); only a truly empty band greys out.
+4. **Stage:** roles from the top: Bass, Rhythm, Hook, Lead, Support, Bed, FX.
+5. **Moves:** when there are more than fit, click the list to see the next page ("1/2 more ›").
+6. **Save and reopen:** the knobs and A–E still work after reopening, without listening again.
+7. The layout: readable, nothing clipped, TONE over the orange half and DYNAMICS over the blue half.
 
-Send the Max window lines if anything looks wrong, and say what you hear.
+Sets saved with 16a keep their reading and sound. Send the Max window lines if anything looks wrong, and say what you
+hear.

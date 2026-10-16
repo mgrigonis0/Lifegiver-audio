@@ -18,7 +18,7 @@
 		"openrect": [
 			0.0,
 			0.0,
-			1200.0,
+			706.0,
 			169.0
 		],
 		"bglocked": 0,
@@ -38,7 +38,7 @@
 		"boxanimatetime": 200,
 		"enablehscroll": 1,
 		"enablevscroll": 1,
-		"devicewidth": 1200.0,
+		"devicewidth": 706.0,
 		"description": "Lifegiver",
 		"digest": "",
 		"tags": "",
@@ -172,7 +172,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-16a"
+					"text": "patch 2026-10-16b"
 				}
 			},
 			{
@@ -265,13 +265,13 @@
 					"presentation_rect": [
 						0.0,
 						0.0,
-						1200.0,
+						706.0,
 						169.0
 					],
 					"filename": "lifegiver.strip.js",
 					"parameter_enable": 0,
 					"border": 0,
-					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E mix five strategies. Amount 0 % = the original, untouched.",
+					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched.",
 					"annotation_name": "Lifegiver"
 				}
 			},
@@ -1337,11 +1337,11 @@
 						"",
 						"float"
 					],
-					"varname": "Var A Clean",
+					"varname": "A Polish",
 					"parameter_enable": 1,
 					"saved_attribute_attributes": {
 						"valueof": {
-							"parameter_longname": "Var A Clean",
+							"parameter_longname": "A Polish",
 							"parameter_shortname": "A",
 							"parameter_type": 0,
 							"parameter_mmin": 0,
@@ -1349,7 +1349,7 @@
 							"parameter_initial_enable": 1,
 							"parameter_unitstyle": 5,
 							"parameter_initial": [
-								70
+								0
 							]
 						}
 					}
@@ -1389,11 +1389,11 @@
 						"",
 						"float"
 					],
-					"varname": "Var B Rich",
+					"varname": "B Warm",
 					"parameter_enable": 1,
 					"saved_attribute_attributes": {
 						"valueof": {
-							"parameter_longname": "Var B Rich",
+							"parameter_longname": "B Warm",
 							"parameter_shortname": "B",
 							"parameter_type": 0,
 							"parameter_mmin": 0,
@@ -1441,11 +1441,11 @@
 						"",
 						"float"
 					],
-					"varname": "Var C Bold",
+					"varname": "C Bold",
 					"parameter_enable": 1,
 					"saved_attribute_attributes": {
 						"valueof": {
-							"parameter_longname": "Var C Bold",
+							"parameter_longname": "C Bold",
 							"parameter_shortname": "C",
 							"parameter_type": 0,
 							"parameter_mmin": 0,
@@ -1453,7 +1453,7 @@
 							"parameter_initial_enable": 1,
 							"parameter_unitstyle": 5,
 							"parameter_initial": [
-								30
+								0
 							]
 						}
 					}
@@ -1493,11 +1493,11 @@
 						"",
 						"float"
 					],
-					"varname": "Var D Vintage",
+					"varname": "D Vintage",
 					"parameter_enable": 1,
 					"saved_attribute_attributes": {
 						"valueof": {
-							"parameter_longname": "Var D Vintage",
+							"parameter_longname": "D Vintage",
 							"parameter_shortname": "D",
 							"parameter_type": 0,
 							"parameter_mmin": 0,
@@ -1545,11 +1545,11 @@
 						"",
 						"float"
 					],
-					"varname": "Var E Tight",
+					"varname": "E Driven",
 					"parameter_enable": 1,
 					"saved_attribute_attributes": {
 						"valueof": {
-							"parameter_longname": "Var E Tight",
+							"parameter_longname": "E Driven",
 							"parameter_shortname": "E",
 							"parameter_type": 0,
 							"parameter_mmin": 0,

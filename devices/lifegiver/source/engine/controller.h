@@ -183,7 +183,7 @@ public:
         if (sol.ok) {
             std::vector<double> sv(sol.tools, sol.tools + NT);
             for (int m = 0; m < NM; m++) for (int k = 0; k < NT; k++) sv.push_back(sol.J[m][k]);
-            for (int m = 0; m < NM; m++) { sv.push_back(sol.M[m]); sv.push_back(sol.Z[m]); }
+            for (int m = 0; m < NM; m++) { sv.push_back(sol.M[m]); sv.push_back(sol.Z[m]); sv.push_back(sol.Zraw[m]); }
             for (int q = 0; q < NQ; q++) { sv.push_back(sol.zok[q] ? 1 : 0); sv.push_back(sol.units.up[q]); sv.push_back(sol.units.dn[q]); sv.push_back(sol.units.ok[q] ? 1 : 0); }
             sv.push_back(sol.inLoud);
             d.num["sol"] = sv;
@@ -450,12 +450,13 @@ private:
         sol = Solution();
         const std::vector<double>* sv = d.get("sol");
         const std::vector<double>* sp = d.get("solplan");
-        const size_t solN = NT + NM * NT + 2 * NM + 4 * NQ + 1;
-        if (sv && sv->size() == solN && sp && sp->size() == (size_t)NP) {
+        const size_t solOld = NT + NM * NT + 2 * NM + 4 * NQ + 1, solN = solOld + NM;   // 16a had no raw zero
+        if (sv && (sv->size() == solN || sv->size() == solOld) && sp && sp->size() == (size_t)NP) {
+            const bool raw = sv->size() == solN;
             size_t k = 0;
             for (int t = 0; t < NT; t++) sol.tools[t] = (*sv)[k++];
             for (int m = 0; m < NM; m++) for (int t = 0; t < NT; t++) sol.J[m][t] = (*sv)[k++];
-            for (int m = 0; m < NM; m++) { sol.M[m] = (*sv)[k++]; sol.Z[m] = (*sv)[k++]; }
+            for (int m = 0; m < NM; m++) { sol.M[m] = (*sv)[k++]; sol.Z[m] = (*sv)[k++]; sol.Zraw[m] = raw ? (*sv)[k++] : sol.Z[m]; }
             for (int q = 0; q < NQ; q++) { sol.zok[q] = (*sv)[k++] > 0.5; sol.units.up[q] = (*sv)[k++]; sol.units.dn[q] = (*sv)[k++]; sol.units.ok[q] = (*sv)[k++] > 0.5; }
             sol.inLoud = (*sv)[k++];
             for (int i = 0; i < NP; i++) sol.plan[i] = (*sp)[(size_t)i];
@@ -506,6 +507,9 @@ private:
     }
 
     void sendVarsUi() {
+        // without the takes (a reopened set) each character's reach comes from the saved sensitivities
+        if (!solveSet && sol.ok && prof.valid)
+            for (int k = 0; k < NVAR; k++) varReach[k] = fastStep(sol, prof, in, k).reach;
         std::vector<double> v(varReach, varReach + NVAR);
         v.push_back((double)solo);
         host->ui("vars", v);
@@ -526,7 +530,7 @@ private:
                            compareOn ? 1.0 : 0.0, (double)takes.size()});
         // knobs: per quality: word (0 = —, 1..4), dots 1..3, stage push (steps), adjustable, reached, asked
         double push[NQ];
-        stagePush(in, push);
+        askedPush(in, solo, push);   // the arc on each knob: what the stage and the characters ask
         std::vector<double> kv;
         for (int q = 0; q < NQ; q++) {
             const bool adj = prof.valid && (sol.ok ? sol.units.ok[q] : prof.readValid[q]);

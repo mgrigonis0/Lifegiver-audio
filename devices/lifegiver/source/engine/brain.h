@@ -35,7 +35,7 @@ struct Inputs {
     double lo = 20, hi = 20000;      // the range the sound may own
     double fit = 0.5;                // 0 = Identity … 1 = Fit
     double clean = 0.4;              // 0 … 1
-    double vars[NVAR] = {0.7, 0, 0.3, 0, 0};   // the mockup's start: mostly Clean, some Bold
+    double vars[NVAR] = {0, 0, 0, 0, 0};       // character strengths A..E (0 = none)
     Inputs() { for (double& k : knob) k = 0; }
 };
 
@@ -91,15 +91,19 @@ inline Units unitsFor(const Profile& p, const double* zero, const bool* zeroOk) 
     Units u;
     for (int q = 0; q < NQ; q++) { u.up[q] = 0; u.dn[q] = 0; u.ok[q] = zeroOk[q]; }
     const double* R = zero;
-    u.up[Q_WEIGHT] = R[Q_WEIGHT] < -35 ? 0.5 : (R[Q_WEIGHT] > 3 ? 3 : 6);   u.dn[Q_WEIGHT] = 9;
+    u.up[Q_WEIGHT] = R[Q_WEIGHT] > 3 ? 3 : 6;                                u.dn[Q_WEIGHT] = 9;
     u.up[Q_WARM] = R[Q_WARM] > 3 ? 2.5 : 5;                                  u.dn[Q_WARM] = 8;
     u.up[Q_BITE] = R[Q_BITE] > -8 ? 2.5 : 5;                                 u.dn[Q_BITE] = 8;
-    u.up[Q_AIR] = R[Q_AIR] < -45 ? 1 : (R[Q_AIR] > -14 ? 3 : 6);             u.dn[Q_AIR] = 10;
-    u.up[Q_TEXTURE] = p.harmonic > 0.5 ? 6 : 2;                              u.dn[Q_TEXTURE] = 3;
+    u.up[Q_AIR] = R[Q_AIR] > -14 ? 3 : 6;                                    u.dn[Q_AIR] = 10;
+    u.up[Q_TEXTURE] = p.harmonic > 0.5 ? 4 : 2;                              u.dn[Q_TEXTURE] = 3;
     u.up[Q_PUNCH] = 6;                                                       u.dn[Q_PUNCH] = 5;
     u.up[Q_TAIL] = 6;                                                        u.dn[Q_TAIL] = 8;
     u.up[Q_STEADY] = clampd(-R[Q_STEADY] - 1.0, 0, 5);                       u.dn[Q_STEADY] = 4;
-    for (int q = Q_WEIGHT; q <= Q_AIR; q++) if (R[q] < -40) u.ok[q] = false;   // (almost) nothing there to shape
+    // a weak band (little of the sound's energy there) gets a gentle lift only; an empty one can't be shaped
+    for (int q = Q_WEIGHT; q <= Q_AIR; q++) {
+        if (R[q] < -60) u.ok[q] = false;
+        else if (R[q] < -40) u.up[q] = std::min(u.up[q], 3.0);
+    }
     for (int q = 0; q < NQ; q++) {
         const double c = 0.6 + 0.4 * clampd(p.certainty[q], 0, 1);   // unsure → gentler
         u.up[q] *= c; u.dn[q] *= c;
@@ -120,40 +124,75 @@ static const double TOOL_LO[NT] = {-12, -9, -10, -12, -6, 0, 0, 0, -1, -1};
 static const double TOOL_HI[NT] = {9, 6, 8, 9, 6, 1, 1, 1, 1, 1};
 static const double TOOL_H[NT] = {3, 3, 3, 3, 2, 0.3, 0.4, 0.4, 0.4, 0.4};   // typical step (cost unit, probe size)
 
-// Variation tool costs (lower = preferred). A Clean · B Rich · C Bold · D Vintage · E Tight (DESIGN §9)
+// The characters A..E, from subtle to strong (the user's "rising character"). Each one, at its strength (0..1):
+// asks for its own sound (pushes, in steps, added to the stage's), prefers its own tools (costs, lower = preferred)
+// and sets its style (compressor attack, release ms, max ratio, parallel mix; saturation evenness). All at 0 = no
+// character: only what the stage and the knobs ask, by the cleanest tools. Strengths add (any blend).
+static const char* const VAR_NAMES[NVAR] = {"Polish", "Warm", "Bold", "Vintage", "Driven"};
+static const double VAR_PUSH[NVAR][NQ] = {
+    // Weight Warm Bite Air Texture Punch Tail Steady
+    {0, 0, 1, 2, 0, 0, 0, 1},             // A Polish: a little clearer and more open, gentle glue
+    {0.5, 2.5, 0, -0.5, 0, 0, 0, 1.5},    // B Warm: body, glue
+    {0, 0, 2.5, 0, 0, 3, -1, 0},          // C Bold: forward, sharper attacks
+    {0, 2, -1, -3, 0, -1, 0, 3},          // D Vintage: rounded soft top, slow glue
+    {1, 0, 2, 0, 0, 1.5, 0, 4},           // E Driven: dense, held level
+};
+// Each character's colour, always in its sound at its strength: the least amount of its signature tools
+// (saturation drive, compressor amount, transient attack). The solver works around it, so the goal still holds.
+static const double VAR_FLOOR[NVAR][NT] = {
+    // Weight Warm Bite Air Tilt Sat  Comp  Exp TsA  TsS
+    {0, 0, 0, 0, 0, 0.0, 0.15, 0, 0.0, 0},   // A Polish: gentle glue only
+    {0, 0, 0, 0, 0, 0.3, 0.25, 0, 0.0, 0},   // B Warm: warm (even) harmonics, glue
+    {0, 0, 0, 0, 0, 0.3, 0.0, 0, 0.3, 0},    // C Bold: edgy (odd) harmonics, sharper attacks
+    {0, 0, 0, 0, 0, 0.45, 0.35, 0, 0.0, 0},  // D Vintage: tape-like harmonics, slow glue
+    {0, 0, 0, 0, 0, 0.75, 0.5, 0, 0.0, 0},   // E Driven: dense saturation, held level
+};
 static const double VAR_COST[NVAR][NT] = {
     // Weight Warm Bite  Air  Tilt  Sat  Comp  Exp  TsA  TsS
-    {1.0, 1.0, 1.0, 1.0, 40, 40, 1.0, 2.0, 1.5, 1.5},    // A Clean: EQ and transparent dynamics, no colour
-    {1.5, 1.2, 1.5, 1.5, 40, 0.5, 0.7, 3.0, 2.0, 1.0},   // B Rich: even harmonics, glue
-    {1.5, 1.5, 0.8, 1.2, 40, 0.8, 2.0, 2.0, 0.5, 1.5},   // C Bold: attack, presence, odd harmonics
-    {1.2, 1.2, 2.0, 2.5, 0.6, 0.7, 0.8, 3.0, 2.5, 1.2},  // D Vintage: a darker/brighter tilt, soft harmonics, slow
-    {1.0, 1.0, 1.0, 1.5, 40, 3.0, 0.5, 1.0, 1.0, 0.7},   // E Tight: control
+    {1.0, 1.0, 1.0, 1.0, 40, 40, 1.0, 3.0, 2.0, 2.0},    // A Polish: EQ and transparent dynamics, no colour
+    {1.2, 1.2, 1.2, 1.2, 40, 0.5, 0.7, 3.0, 2.0, 1.2},   // B Warm
+    {1.2, 1.2, 0.8, 1.2, 40, 0.8, 2.0, 2.0, 0.5, 1.5},   // C Bold
+    {1.5, 1.5, 1.5, 2.5, 0.6, 0.6, 0.7, 3.0, 2.0, 1.2},  // D Vintage: the top comes down by a tilt
+    {1.2, 1.2, 1.2, 1.2, 40, 0.3, 0.5, 2.0, 1.0, 1.0},   // E Driven
 };
-// per variation: compressor attack, release (ms), max ratio, parallel mix; saturation evenness
 static const double VAR_STYLE[NVAR][5] = {
-    {10, 150, 3.0, 1.0, 0.5},
+    {10, 150, 2.5, 1.0, 0.5},
     {25, 250, 2.5, 0.6, 0.85},
     {30, 120, 3.0, 1.0, 0.15},
     {40, 400, 2.5, 0.8, 0.6},
-    {3, 80, 5.0, 1.0, 0.4},
+    {5, 100, 5.0, 1.0, 0.4},
 };
+// no character: the cleanest tools, a transparent compressor
+static const double NEUTRAL_COST[NT] = {1.0, 1.0, 1.0, 1.0, 40, 40, 1.0, 2.0, 1.5, 1.5};
+static const double NEUTRAL_STYLE[5] = {10, 150, 3.0, 1.0, 0.5};
 
-struct Mix { double w[NVAR]; };
+// strengths (raw, for the pushes) and the share of each (and of "no character") in costs and styles
+struct Mix { double w[NVAR]; double share[NVAR + 1]; };
 inline Mix mixOf(const Inputs& in, int solo) {
     Mix m;
     double s = 0;
     for (int v = 0; v < NVAR; v++) { m.w[v] = solo >= 0 ? (v == solo ? 1.0 : 0.0) : clampd(in.vars[v], 0, 1); s += m.w[v]; }
-    if (s <= 1e-9) { for (int v = 0; v < NVAR; v++) m.w[v] = v == 0 ? 1 : 0; s = 1; }
-    for (int v = 0; v < NVAR; v++) m.w[v] /= s;
+    const double none = std::max(0.0, 1.0 - s), tot = s + none;
+    for (int v = 0; v < NVAR; v++) m.share[v] = m.w[v] / tot;
+    m.share[NVAR] = none / tot;
     return m;
 }
 inline void toolCosts(const Mix& m, const Profile& p, double* c) {
     for (int t = 0; t < NT; t++) {
-        double lc = 0;
-        for (int v = 0; v < NVAR; v++) lc += m.w[v] * std::log(VAR_COST[v][t]);
+        double lc = m.share[NVAR] * std::log(NEUTRAL_COST[t]);
+        for (int v = 0; v < NVAR; v++) lc += m.share[v] * std::log(VAR_COST[v][t]);
         c[t] = std::exp(lc);
     }
-    c[T_SAT] *= 1 + 8 * (1 - clampd(p.harmonic, 0, 1));   // safety: overtones on noisy/dense sound make intermodulation
+    c[T_SAT] *= 1 + 30 * (1 - clampd(p.harmonic, 0, 1));   // safety: overtones on noisy/dense sound make intermodulation
+}
+// what is asked of each quality beyond the user's own turn: the stage, plus the characters
+inline void askedPush(const Inputs& in, int solo, double* push) {
+    stagePush(in, push);
+    const Mix m = mixOf(in, solo);
+    for (int q = 0; q < NQ; q++) {
+        for (int v = 0; v < NVAR; v++) push[q] += m.w[v] * VAR_PUSH[v][q];
+        push[q] = clampd(push[q], -10, 10);
+    }
 }
 
 // ------------------------------------------------------------------------------------------------- plans
@@ -173,8 +212,11 @@ inline Plan basePlan(const Inputs& in, const Profile& p, const Mix& m) {
     pl[P_BITE_HZ] = 3000;
     pl[P_AIR_HZ] = in.hi < 19000 ? std::min(10000.0, in.hi * 0.7) : 10000.0;
     // styles from the variation mix
-    double st[5] = {0, 0, 0, 0, 0};
-    for (int v = 0; v < NVAR; v++) for (int k = 0; k < 5; k++) st[k] += m.w[v] * VAR_STYLE[v][k];
+    double st[5];
+    for (int k = 0; k < 5; k++) {
+        st[k] = m.share[NVAR] * NEUTRAL_STYLE[k];
+        for (int v = 0; v < NVAR; v++) st[k] += m.share[v] * VAR_STYLE[v][k];
+    }
     // safety: dynamics slower than the period of the lowest note heard (with margin), or low notes distort
     const double period = p.f0min > 0 ? 1000.0 / p.f0min : 1000.0 / 40;
     pl[P_COMP_ATT] = std::max(st[0], 0.5 * period);
@@ -249,7 +291,8 @@ struct Solution {
     double tools[NT];
     double J[NM][NT];        // d(measure, dB)/d(tool), at the solution
     double M[NM];            // measured at the solution
-    double Z[NM];            // the zero point: the take through the base plan (cuts, no tools)
+    double Z[NM];            // the zero point: the take through the base plan and the characters' colour
+    double Zraw[NM];         // the take through the base plan alone (cuts, no tools)
     bool zok[NQ];
     double asked[NQ];        // steps asked
     double reached[NQ];      // steps reached (measured)
@@ -258,7 +301,7 @@ struct Solution {
     Units units;
     Solution() {
         for (int t = 0; t < NT; t++) { tools[t] = 0; for (int m = 0; m < NM; m++) J[m][t] = 0; }
-        for (int m = 0; m < NM; m++) { M[m] = 0; Z[m] = 0; }
+        for (int m = 0; m < NM; m++) { M[m] = 0; Z[m] = 0; Zraw[m] = 0; }
         for (int q = 0; q < NQ; q++) { zok[q] = false; asked[q] = 0; reached[q] = 0; }
     }
 };
@@ -304,25 +347,37 @@ static const bool TOOL_FOR[NQ][NT] = {
     {false, false, false, false, false, false, true, true, false, false},    // Steady
 };
 
+// the characters' colour: the least of each tool, at their strengths
+inline void floorsOf(const Mix& m, const Profile& p, double* floor) {
+    for (int k = 0; k < NT; k++) {
+        double f = 0;
+        for (int v = 0; v < NVAR; v++) f += m.w[v] * VAR_FLOOR[v][k];
+        if (k == T_SAT) f *= clampd(p.harmonic, 0, 1);   // safety: little or no saturation on noisy, dense sound
+        floor[k] = clampd(f, 0, TOOL_HI[k]);
+    }
+}
+
 struct Problem {
     double T[NQ];            // target (dB of each measure)
     double w[NQ];            // weight per quality (normalised residuals)
     double scale[NQ];        // dB per step (normalisation)
     double cost[NT];         // tool costs
     bool on[NT];             // tools the solver may move
+    double floor[NT];        // the characters' colour: the least of each tool (0 = none)
     bool unreachable[NQ] = {false, false, false, false, false, false, false, false};
     double inLoud = -70;     // the input's loudness: a big level change costs (it would only be hidden by make-up)
     double lambda = 0.03;
 };
 constexpr double LOUD_W = 0.15, LOUD_SCALE = 3.0;
 
-inline Problem makeProblem(const Inputs& in, const Profile& p, const Mix& m, const double* Z, const bool* zok, const Units& u,
-                           double inLoud, double* askedOut) {
+inline Problem makeProblem(const Inputs& in, const Profile& p, const Mix& m, int solo, const double* Z, const bool* zok,
+                           const Units& u, double inLoud, double* askedOut) {
     Problem pb;
     double push[NQ];
-    stagePush(in, push);
+    askedPush(in, solo, push);
     toolCosts(m, p, pb.cost);
     pb.inLoud = inLoud;
+    floorsOf(m, p, pb.floor);
     for (int k = 0; k < NT; k++) pb.on[k] = false;
     const double keepW = 0.15 + 0.35 * (1 - clampd(in.fit, 0, 1));   // Identity end: protect what isn't asked
     for (int q = 0; q < NQ; q++) {
@@ -339,22 +394,34 @@ inline Problem makeProblem(const Inputs& in, const Profile& p, const Mix& m, con
         if (asked && !tool) asked = false, pb.unreachable[q] = true;
         pb.w[q] = !zok[q] || !u.ok[q] || pb.unreachable[q] ? 0 : (asked ? 1.0 : keepW);
     }
+    // a quality nobody asked for, with none of its tools in play: its change is a side effect to show, not a cost
+    for (int q = 0; q < NQ; q++) {
+        if (pb.w[q] <= 0 || pb.w[q] >= 1.0) continue;
+        bool served = false;
+        for (int k = 0; k < NT; k++) served = served || (pb.on[k] && TOOL_FOR[q][k]);
+        if (!served) pb.w[q] = 0;
+    }
     return pb;
 }
 
 inline double costOf(const Problem& pb, const double* M, const double* t) {
     double c = 0;
     for (int q = 0; q < NQ; q++) { const double r = (M[q] - pb.T[q]) / pb.scale[q]; c += pb.w[q] * r * r; }
-    for (int k = 0; k < NT; k++) { const double a = t[k] / TOOL_H[k]; c += pb.lambda * pb.cost[k] * a * a; }
+    for (int k = 0; k < NT; k++) { const double a = (t[k] - pb.floor[k]) / TOOL_H[k]; c += pb.lambda * pb.cost[k] * a * a; }
     const double l = (M[NQ] - pb.inLoud) / LOUD_SCALE;
     return c + LOUD_W * l * l;
 }
 
 // One regularised Gauss-Newton step from tools t (measured M) using J, over the enabled tools only; mu = Levenberg
 // damping; each tool moves at most 2 of its typical steps per iteration (trust region).
+// One regularised Gauss-Newton step from tools t (measured M) using J, over the enabled tools only; mu = Levenberg
+// damping; each tool moves at most 2 of its typical steps per iteration (trust region). Only the tools that serve
+// an asked quality move (TOOL_FOR, in makeProblem); their effects on every quality count. Tools that aren't enabled
+// stay at the characters' floor.
+inline double toolLo(const Problem& pb, int k) { return pb.floor[k] > 0 ? std::max(TOOL_LO[k], pb.floor[k]) : TOOL_LO[k]; }
 inline void gnStep(const Problem& pb, const double J[NM][NT], const double* M, const double* t, double mu, double* tNew) {
     int idx[NT], n = 0;
-    for (int k = 0; k < NT; k++) { tNew[k] = pb.on[k] ? t[k] : 0.0; if (pb.on[k]) idx[n++] = k; }
+    for (int k = 0; k < NT; k++) { tNew[k] = pb.on[k] ? clampd(t[k], toolLo(pb, k), TOOL_HI[k]) : pb.floor[k]; if (pb.on[k]) idx[n++] = k; }
     if (!n) return;
     double A[NT][NT], g[NT], d[NT];
     for (int i = 0; i < n; i++) { g[i] = 0; for (int j = 0; j < n; j++) A[i][j] = 0; }
@@ -362,7 +429,9 @@ inline void gnStep(const Problem& pb, const double J[NM][NT], const double* M, c
         for (int i = 0; i < n; i++) {
             const double ji = Jr[idx[i]] * TOOL_H[idx[i]];   // in tool steps (better conditioned)
             g[i] += s2 * ji * r;
-            for (int j = 0; j < n; j++) A[i][j] += s2 * ji * Jr[idx[j]] * TOOL_H[idx[j]];
+            for (int j = 0; j < n; j++) {
+                A[i][j] += s2 * ji * Jr[idx[j]] * TOOL_H[idx[j]];
+            }
         }
     };
     for (int q = 0; q < NQ; q++) {
@@ -374,13 +443,13 @@ inline void gnStep(const Problem& pb, const double J[NM][NT], const double* M, c
         const int k = idx[i];
         const double reg = pb.lambda * pb.cost[k];
         A[i][i] += reg + mu * (A[i][i] + reg) + 1e-9;
-        g[i] = -(g[i] + reg * t[k] / TOOL_H[k]);
+        g[i] = -(g[i] + reg * (t[k] - pb.floor[k]) / TOOL_H[k]);   // the cost is for going beyond the character's colour
     }
     if (!solveLinear(A, g, d, n)) return;
     for (int i = 0; i < n; i++) {
         const int k = idx[i];
         const double step = clampd(d[i], -2, 2) * TOOL_H[k];
-        tNew[k] = clampd(t[k] + step, TOOL_LO[k], TOOL_HI[k]);
+        tNew[k] = clampd(t[k] + step, toolLo(pb, k), TOOL_HI[k]);
     }
 }
 
@@ -410,40 +479,51 @@ inline Solution solve(const TakeSet& ts, const Profile& p, const Inputs& in, int
     const Plan base = basePlan(in, p, mix);
     s.inLoud = renderMeasure(ts, base, in.lo, in.hi, true).loudness;
     const Measured zm = renderMeasure(ts, base, in.lo, in.hi);
-    toMeasures(zm, s.Z);
+    toMeasures(zm, s.Zraw);
     for (int q = 0; q < NQ; q++) s.zok[q] = zm.valid[q];
-    s.units = unitsFor(p, s.Z, s.zok);
-    const Problem pb = makeProblem(in, p, mix, s.Z, s.zok, s.units, s.inLoud, s.asked);
+    s.units = unitsFor(p, s.Zraw, s.zok);
 
     double t[NT], M[NM];
-    for (int k = 0; k < NT; k++) t[k] = 0;
-    for (int m = 0; m < NM; m++) M[m] = s.Z[m];
     auto eval = [&](const double* tt, double* out) {
         Plan pl = base;
         applyTools(pl, tt);
         toMeasures(renderMeasure(ts, pl, in.lo, in.hi), out);
     };
-    // sensitivities of the enabled tools, probed one at a time from the current point
-    auto probe = [&]() {
-        for (int k = 0; k < NT; k++) {
-            if (!pb.on[k]) continue;
-            double tt[NT], out[NM];
-            for (int i = 0; i < NT; i++) tt[i] = t[i];
-            double h = TOOL_H[k];
-            if (tt[k] + h > TOOL_HI[k]) h = -h;
-            tt[k] += h;
-            eval(tt, out);
-            for (int m = 0; m < NM; m++) s.J[m][k] = (out[m] - M[m]) / h;
-        }
+    // The characters' colour is the new zero: what it does to the sound is intended, so the asks (stage, knobs,
+    // the characters' own pushes) are measured from there, and nothing fights it.
+    double fl[NT];
+    floorsOf(mix, p, fl);
+    bool coloured = false;
+    for (int k = 0; k < NT; k++) { t[k] = fl[k]; coloured = coloured || t[k] != 0.0; }
+    if (coloured) eval(t, M); else for (int m = 0; m < NM; m++) M[m] = s.Zraw[m];
+    for (int m = 0; m < NM; m++) s.Z[m] = M[m];
+    const Problem pb = makeProblem(in, p, mix, solo, s.Z, s.zok, s.units, s.inLoud, s.asked);
+    // Sensitivities, probed one tool at a time from the current point. A fresh solve probes EVERY tool (not just the
+    // ones this ask enables), so the saved table answers any later knob or character on the fast path, also after a
+    // reopen without the takes.
+    auto probeTool = [&](int k) {
+        double tt[NT], out[NM];
+        for (int i = 0; i < NT; i++) tt[i] = t[i];
+        double h = TOOL_H[k];
+        if (tt[k] + h > TOOL_HI[k]) h = -h;
+        tt[k] += h;
+        eval(tt, out);
+        for (int m = 0; m < NM; m++) s.J[m][k] = (out[m] - M[m]) / h;
     };
+    auto probe = [&]() { for (int k = 0; k < NT; k++) if (pb.on[k]) probeTool(k); };
     bool any = false;
     for (int k = 0; k < NT; k++) any = any || pb.on[k];
-    if (any) {
-        if (warm && warm->ok) {
-            for (int m = 0; m < NM; m++) for (int k = 0; k < NT; k++) s.J[m][k] = warm->J[m][k];
-        } else {
-            probe();
+    if (warm && warm->ok) {
+        for (int m = 0; m < NM; m++) for (int k = 0; k < NT; k++) s.J[m][k] = warm->J[m][k];
+        for (int k = 0; k < NT; k++) {
+            bool known = false;
+            for (int m = 0; m < NM; m++) known = known || s.J[m][k] != 0.0;
+            if (!known) probeTool(k);
         }
+    } else {
+        for (int k = 0; k < NT; k++) probeTool(k);
+    }
+    if (any) {
         double cur = costOf(pb, M, t);
         double mu = 0.01;
         bool fresh = !(warm && warm->ok);   // J was just probed here
@@ -504,7 +584,14 @@ inline Solution fastStep(const Solution& last, const Profile& p, const Inputs& i
     if (!last.ok) return s;
     const Mix mix = mixOf(in, solo);
     const Plan base = basePlan(in, p, mix);
-    Problem pb = makeProblem(in, p, mix, last.Z, last.zok, last.units, last.inLoud, s.asked);
+    // the zero point with this mix's colour, from the raw zero and the sensitivities
+    double fl[NT];
+    floorsOf(mix, p, fl);
+    for (int m = 0; m < NM; m++) {
+        s.Z[m] = last.Zraw[m];
+        for (int k = 0; k < NT; k++) s.Z[m] += last.J[m][k] * fl[k];
+    }
+    Problem pb = makeProblem(in, p, mix, solo, s.Z, last.zok, last.units, last.inLoud, s.asked);
     for (int k = 0; k < NT; k++) {
         bool known = false;
         for (int m = 0; m < NM; m++) known = known || last.J[m][k] != 0.0;

@@ -142,6 +142,9 @@ Why: the strategy is visible and changeable; the main complaint in a user study 
 
 ## 9. Variations A–E, mixed at any strengths
 
+_16b: A–E became characters of rising strength (Polish, Warm, Bold, Vintage, Driven), all 0 = none; see §17. The
+mixing rules below still hold._
+
 For one goal the device plans **five strategies** that reach the same target with different tool families, so each
 sounds a bit different:
 
@@ -254,7 +257,7 @@ latency, CPU); more than 3 bands (artifacts for little gain); output limiter (§
 - Specificity detection (§6): proxy to test on the stems.
 - Whether the full UI fits 169 px or the Moves console needs a pop-out: decide on mockup v2.
 
-## 17. As built (16a): the concrete definitions
+## 17. As built (16a, revised in 16b): the concrete definitions
 
 First drafts, measured on the synthetic signals and the user's 10 stems (`tools/render bench`); tuned by ear next.
 
@@ -299,6 +302,23 @@ input: zero latency, exact at 0, aliasing < −40 dBc at full drive) → compres
 60 Hz HP detector, attack/release ≥ ½ / 5 periods of the lowest note) → transient shaper (fast/slow envelope
 difference, 50–1500 Hz detector) → high cut → stereo stage → make-up + stage level. Every value glides (two one-pole
 stages, 15 ms). CPU with every module working: ~1.9 % of one core (Linux CI machine, 48 kHz).
+
+**16b changes** (the user's Live test of 16a):
+- **No take audio is kept.** The first solve probes every tool on the takes and saves the sensitivities with the plan
+  (state format 2 + the raw zero `Zraw`); after a reopen the knobs and A–E use the fast path (Gauss-Newton steps on
+  the saved sensitivities). Re-listening refines.
+- **A–E are characters of rising strength**, not strategies: A Polish, B Warm, C Bold, D Vintage, E Driven. Each is a
+  push on the qualities (e.g. Warm: Warm +2.5, Steady +1.5; Driven: Bite +2, Punch +1.5, Steady +4) + tool costs +
+  a compressor style + **colour floors** (saturation / compression / attack minimums, e.g. Driven sat 0.75, comp 0.5).
+  The floors are the character's sound: the result with the floors defines the new zero, and the solver works from
+  there (it doesn't fight the colour). Mixing: weighted, the neutral share = 1 − Σ weights. **All at 0 % = no
+  character** (the default; was A 70 / C 30).
+- **Weak bands:** a band below −40 dB gets a gentle lift (≤ 3 steps); only < −60 dB is "nothing to shape". Air +6
+  (+3 if already airy), Weight +6 (+3 if heavy).
+- **Texture** = flatness relative to the 1/3-octave envelope (whitened), so EQ doesn't change it.
+- Saturation residual high-passed at 30 Hz (2nd order; no sub thump); saturation costs ×31 on noise.
+- Strip 706 px; Stage role order Bass, Rhythm, Hook, Lead, Support, Bed, FX; Moves pages on click.
+- Bench (10 stems, no character): reach 25–99 %; a full first solve 0.5–3.1 s, each character 0.2–3.5 s (background).
 
 **Not yet** (next builds): dynamic EQ and resonance tamer (Clean's second job), multiband, post-saturation slot,
 short ambience, specificity detection for Identity (Identity↔Fit only scales the role's pull and protects unasked

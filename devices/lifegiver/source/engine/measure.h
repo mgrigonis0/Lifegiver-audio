@@ -5,7 +5,8 @@
 //   Warm     power in [150, 600 Hz] vs the rest                                         dB
 //   Bite     power in [1.8, 5 kHz] vs the rest (presence)                               dB
 //   Air      power in [8 kHz, range hi] vs the rest                                     dB
-//   Texture  spectral flatness 500 Hz – 8 kHz (grain: partials and noise filling the gaps), mean over frames  dB
+//   Texture  spectral flatness 500 Hz – 8 kHz relative to the 1/3-octave envelope (grain: what fills the gaps
+//            between partials; tone colour doesn't move it), mean over frames                                dB
 //   Punch    transient over body in 64 Hz – 1 kHz: peak in the first 30 ms after each onset vs 60–120 ms  dB
 //   Tail     level 150–400 ms after each onset vs its peak                              dB (negative: decays)
 //   Steady   minus the spread of the 50 ms level (P90 − P10, as a standard deviation)  dB
@@ -269,7 +270,7 @@ public:
         // spectrum + flatness
         if (!r.frameActive.empty()) {
             Fft fft(r.fftN);
-            std::vector<double> p;
+            std::vector<double> p, pre;
             const double binHz = a.sr / r.fftN;
             const int b500 = (int)std::ceil(500 / binHz), b8k = std::min((int)(8000 / binHz), r.fftN / 2);
             for (size_t f = 0; f < r.frameActive.size(); f++) {
@@ -280,10 +281,21 @@ public:
                     if (g < GRID_N) spec[(size_t)g] += p[k];
                 }
                 frames++;
-                double lsum = 0, asum = 0;
+                // grain: flatness of the spectrum relative to its own 1/3-octave envelope, so a tone colour (EQ, tilt)
+                // doesn't change it: only what fills the gaps between partials does (noise, new harmonics)
+                pre.assign(p.size() + 1, 0.0);
+                for (size_t k = 0; k < p.size(); k++) pre[k + 1] = pre[k] + p[k];
+                double lsum = 0, asum = 0, pk = 0;
                 int cnt = 0;
-                for (int k = b500; k <= b8k; k++) { lsum += std::log(p[(size_t)k] + 1e-20); asum += p[(size_t)k]; cnt++; }
-                if (cnt > 0 && asum > 1e-14) { flatSum += 10 * (lsum / cnt - std::log(asum / cnt)) / std::log(10.0); flatN++; }
+                for (int k = b500; k <= b8k; k++) pk = std::max(pk, p[(size_t)k]);
+                for (int k = b500; k <= b8k; k++) {
+                    const int lo = std::max(1, (int)(k / 1.1225)), hi = std::min((int)p.size() - 1, (int)(k * 1.1225) + 1);
+                    const double env = (pre[(size_t)hi + 1] - pre[(size_t)lo]) / (hi - lo + 1);
+                    if (env < pk * 1e-7) continue;   // nothing there (70 dB down): not part of the sound's texture
+                    const double v = p[(size_t)k] / env;
+                    lsum += std::log(v + 1e-20); asum += v; cnt++;
+                }
+                if (cnt > 8 && asum > 1e-14) { flatSum += 10 * (lsum / cnt - std::log(asum / cnt)) / std::log(10.0); flatN++; }
             }
         }
         // punch: 64 Hz – 1 kHz, the transient's peak (first 30 ms) over the body right after it (60–120 ms);

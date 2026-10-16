@@ -132,11 +132,11 @@ PARAMS = [
     ("fit", "Identity Fit", "Id-Fit", 0, 0, 1, 0.5, 1, 1.0, None),
     ("amount", "Amount", "Amount", 0, 0, 100, 100, 5, 1.0, None),
     ("clean", "Clean", "Clean", 0, 0, 100, 40, 5, 1.0, None),
-    ("vara", "Var A Clean", "A", 0, 0, 100, 70, 5, 1.0, None),
-    ("varb", "Var B Rich", "B", 0, 0, 100, 0, 5, 1.0, None),
-    ("varc", "Var C Bold", "C", 0, 0, 100, 30, 5, 1.0, None),
-    ("vard", "Var D Vintage", "D", 0, 0, 100, 0, 5, 1.0, None),
-    ("vare", "Var E Tight", "E", 0, 0, 100, 0, 5, 1.0, None),
+    ("vara", "A Polish", "A", 0, 0, 100, 0, 5, 1.0, None),
+    ("varb", "B Warm", "B", 0, 0, 100, 0, 5, 1.0, None),
+    ("varc", "C Bold", "C", 0, 0, 100, 0, 5, 1.0, None),
+    ("vard", "D Vintage", "D", 0, 0, 100, 0, 5, 1.0, None),
+    ("vare", "E Driven", "E", 0, 0, 100, 0, 5, 1.0, None),
 ]
 NAMES = [p[0] for p in PARAMS]
 
@@ -144,11 +144,11 @@ INFO = {
     "view": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). "
             "Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; "
             "the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it "
-            "does; A–E mix five strategies. Amount 0 % = the original, untouched.",
+            "does; A–E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched.",
 }
 
 # the view: the whole strip, one jsui
-DEVICE_W, DEV_H = 1200, 169
+DEVICE_W, DEV_H = 706, 169
 view = box("jsui", (40, 520, 300, 60), ins=1, outs=1, pres=(0, 0, DEVICE_W, DEV_H), filename="lifegiver.strip.js",
            parameter_enable=0, border=0, annotation=INFO["view"], annotation_name="Lifegiver")
 
