@@ -33,7 +33,7 @@ expect(!/[^\x00-\x7f]/.test(src), "plain ASCII (non-ASCII text is written as \\u
 // ---- a mock Max: mgraphics records every call
 function makeMax() {
     const ops = [], sent = [];
-    const mg = { size: [1116, 169], relative_coords: 0, autofill: 0, _font: 10 };
+    const mg = { size: [756, 169], relative_coords: 0, autofill: 0, _font: 10 };
     const rec = name => (...a) => { ops.push([name, ...a]); };
     for (const f of ["init", "set_source_rgba", "rectangle", "rectangle_rounded", "fill", "fill_preserve", "stroke", "stroke_preserve",
         "set_line_width", "move_to", "line_to", "arc", "close_path", "new_path", "show_text", "select_font_face", "redraw", "set_line_cap"])
@@ -63,7 +63,7 @@ expect(ok, "paints a fresh device (Listen first)");
 
 // state 2: listening
 msg(m, "takes", 0, 0, 0, 0, 0, 2, 2.3, 0);
-expect(paintOps(m).some(o => o[0] === "show_text" && /Listening/.test(o[1])), "paints Listening… with the seconds kept");
+expect(paintOps(m).some(o => o[0] === "show_text" && /^2\.3 s$/.test(o[1])), "while listening, Arm shows the seconds kept");
 
 // state 3: a reading, moves and variations (as the engine sends them)
 msg(m, "takes", 2, 4, 4, 0, 0, 0, 0, 0);
@@ -91,26 +91,26 @@ click(kc.x + kc.w / 2, kc.y + 30);
 const kd = dragTo(kc.x + kc.w / 2, kc.y + 30 - 25);
 expect(kd.length > 0 && /^p bite 5/.test(kd[kd.length - 1]), "dragging the Bite knob up 25 px sets Bite +5 (Live parameter)");
 m.ctx.ondrag(0, 0, 0);
-expect(click(X.ix("stage") + 25, 27 + 5 * 15 + 6).join() === "pickrole 5", "the Bed button picks the role (its stage preset comes from the engine)");
-const sv = click(X.stageX() + 134, 27 + 18 + 0.2 * 70);
+expect(click(X.ix("stage") + 19, 26 + 5 * 15 + 6).join() === "pickrole 5", "the Bed button picks the role (its stage preset comes from the engine)");
+const sv = click(X.sx(134), X.sy(18 + 0.2 * 70));
 expect(sv.some(s => /^p depth 0\.2/.test(s)) && sv.some(s => /^p pan 0$/.test(s)), "clicking the stage floor moves the sound there (depth, pan)");
 m.ctx.ondrag(0, 0, 0);
-expect(click(vc.x + 10, 108).join() === "solo 0", "the A button auditions A alone");
-const bar = click(vc.x + vc.w / 2, 122);
+expect(click(vc.x + 5, 106).join() === "solo 0", "the A button auditions A alone");
+const bar = click(vc.x + vc.w / 2, 119);
 expect(bar.some(s => /^p vara 50/.test(s)), "the A bar sets A's strength (halfway = 50 %)");
 m.ctx.ondrag(0, 0, 0);
 expect(click(cr[0] + 20, cr[1] + 8).join() === "compare 1", "Compare toggles");
 m.ctx.ondblclick(kc.x + kc.w / 2, kc.y + 30);
 expect(m.sent.some(s => s === "p bite 0"), "double-click resets a knob to 0");
-const fit = click(fr[0] + fr[2] - 0.5, 42);
+const fit = click(fr[0] + fr[2] - 0.5, 40);
 expect(fit.some(s => /^p fit 0\.99/.test(s)), "Identity <-> Fit bar: the right end is Fit");
 m.ctx.ondrag(0, 0, 0);
 // Moves: 7 moves = 2 pages; a click on the list shows the next page
 const before = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
-click(X.ix("moves") + 20, 40);
+click(X.ix("moves") + 20, 38);
 const after = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
-expect(/page 1 of 2/.test(before) && /page 2 of 2/.test(after) && /Level matched/.test(after), "Moves pages: a click shows the rest");
-expect(!paintOps(m).some(o => (o[0] === "move_to" || o[0] === "rectangle_rounded" || o[0] === "rectangle") && o[1] > 1116.01), "nothing drawn beyond the device width (1116 px)");
+expect(/1\/2/.test(before) && /2\/2/.test(after) && /Level matched/.test(after), "Moves pages: a click shows the rest");
+expect(!paintOps(m).some(o => (o[0] === "move_to" || o[0] === "rectangle_rounded" || o[0] === "rectangle") && o[1] > 756.01), "nothing drawn beyond the device width (756 px)");
 
 console.log(failures ? `\n${failures} FAILED` : "\nview: all passed");
 process.exit(failures ? 1 : 0);
