@@ -1,6 +1,6 @@
 # Lifegiver — Research notes
 
-_2026-10-15 (corrected after `REVIEW.md`: punch, distance, loudness, timbral models). Theory the design must respect.
+_2026-10-15 (corrected after `REVIEW.md`: punch, distance, loudness, timbral models); 2026-10-17: mix critiques, reverb amount, dynamics preference, pleasantness. Theory the design must respect.
 Paraphrased; sources at the end._
 
 ## How timbre is perceived
@@ -75,6 +75,71 @@ stems; expect warmth and depth to need our own definitions.
 **For Lifegiver:** level is kept small (0 to −3 dB; the fader owns level), so "back" leans on lower presence, darker top,
 softer attack, smaller level jumps and a little short room; not just more reverb. Depth is a stage position, not a knob.
 
+## What engineers' mixes and critiques show (added 2026-10-17)
+- Peer reviews of real mixes (1,397 comments): about three quarters are criticisms. Most mentioned: the mix as a whole,
+  then vocals, then drums (snare and kick most). Of space-related remarks, most are about reverb. Recurring complaints:
+  too much reverb, vocal level, muddy low-mids, thin or dark drums and bass, kick lacking punch. [24]
+- Reverb amount across many mixes is predicted by two numbers: reverb loudness relative to the dry mix, and early
+  decay time. Mixes at −9 LU reverb or more were all judged too wet; the authors suggest about −14 LU as the more desirable level.
+  The window is narrow (the just-noticeable step is ~5–6 dB). Long tails read as too wet even at low level; strong
+  but short reverb read as dry. [25]
+- Mixers reduce masking by panning, mirrored EQ, or splitting the spectrum; in a test with one-slider tools, people
+  were most satisfied with the ones that panned the two sounds apart. [26] Mix clarity drops when noise-like content
+  is masked or adds masking; added reverb and noise lowered predicted clarity. [27]
+- In rock premixes made on good monitoring, louder tracks were darker and quieter tracks brighter (mixers manage the
+  whole mix's balance); on poor monitoring the pattern flipped. [28]
+
+**For Lifegiver:** the room is the most criticised kind of processing, so it must be subtle and short: at most
+around −14 LU relative reverb loudness (that study measured whole mixes; one track's room should be quieter still) and
+a short decay; a long tail is the main fault, more than the level. Muddy
+low-mids, thin drums and weak kick punch are the common complaints: Warm/Weight/Punch should aim there. Separation
+through pan is the preferred fix, and pan is the user's call: the device can suggest, not move it.
+
+## Dynamics: what listeners prefer (added 2026-10-17)
+- Small amounts of compression were preferred when level was free to rise; heavy compression lowered quality even at
+  matched loudness. [29]
+- Lowering crest factor by limiting (15 → 9 dB) changed both loudness and quality ratings; how much louder correlated
+  with better depended on genre (yes for rock and jazz, not for electronic). [30]
+- Moderate compression on individual tracks was preferred over the same on subgroups or on the whole mix; heavy
+  limiting on a sum was disliked most (it makes quiet parts suffer with the loud ones). [31]
+- Experts asked to make sounds punchy with multiband waveshaping produced settings that correlated with punch ratings,
+  supporting band-limited shaping as a punch tool. [32]
+
+**For Lifegiver:** a per-track device is the right place for dynamics. Keep the dynamic amounts moderate by default;
+large reductions should only come from an explicit ask (Scale, a strong character). Judge every change
+loudness-matched: an unmatched louder result is preferred for the wrong reason.
+
+## What the ear finds pleasant or unpleasant (added 2026-10-17)
+- The most unpleasant sounds cluster at **2.5–5.5 kHz** with **slow modulation (1–16 Hz)**: the ear's most sensitive
+  region, shared with screams. [33]
+- **Sharpness** (energy weighted toward high frequencies, steeper upward envelope) is the strongest single timbre
+  dimension of steady sounds; fine spectral detail matters little. [34] Psychoacoustic annoyance rises with loudness,
+  with sharpness above ~1.75 acum, and with roughness and fluctuation. [35]
+- **Roughness**: amplitude modulation of ~20–150 Hz, strongest near 70 Hz; below ~20 Hz it is heard as wavering
+  (fluctuation, peak near 4 Hz); above ~150 Hz it fuses into a smooth tone. [36]
+- **Harmonicity** predicts liking better than absence of beating: across 250+ listeners, people who preferred harmonic
+  over inharmonic tones also preferred consonant chords; beating preference didn't predict it. Training strengthens
+  the harmonicity preference. [37] Pleasant intervals depend on timbre (bell-like spectra have their own
+  consonances), and listeners liked slight deviations from perfect tuning. [38]
+- Clarity of a single sound follows its centroid relative to its own F0 and its "unpleasantness" from sharp spectral
+  peaks; in a mix, how audible the target's peaks are also matters. [39]
+- Music is liked most at moderate complexity: uncertain but resolving. [40] Very low bass (8–37 Hz, not consciously
+  heard) increased dancing at a concert by ~12 %. [41]
+- Natural-sounding reverb tails are dense (1,000+ echoes/s; ~10,000 for impulsive sounds), smooth in frequency with
+  evenly spread modes, and decay faster in the highs. [42] Metallic ringing in feedback reverbs comes from strongly
+  recirculating short delays and comb-like (diagonal) feedback; dense mixing matrices and even modal excitation give a
+  colourless tail. [43][44]
+
+**For Lifegiver:**
+- A "pleasantness guard" is measurable: energy and slow modulation at 2.5–5.5 kHz, sharpness, roughness (20–150 Hz
+  envelope modulation per band) and sharp spectral peaks. Characters and boosts should not raise these unasked; Polish
+  can actively lower them. This extends the harshness tamer and the resonance tamer, not a new module.
+- Saturation should keep harmonicity: low orders on harmonic sounds, little on inharmonic ones (already the rule);
+  "a little imperfection" suggests no need to be clinical.
+- Width/pan, low-mid mud and short room are where mix critiques land, so they deserve the most care.
+- The current room's single feedback comb breaks every reverb quality rule above: it must become a small dense
+  network with a short, darker-in-the-highs decay.
+
 ## Sources
 1. McAdams et al. 1995, Perceptual scaling of synthesized musical timbres — https://three-mode.leidenuniv.nl/pdf/m/mcadams_etal1995pr.pdf
 2. Zacharakis, Pastiadis, Reiss 2014, An interlanguage study of musical timbre semantic dimensions — https://sonicfield.org/library/an-interlanguage-study-of-musical-timbre-semantic-dimensions-and-their-acoustic-
@@ -99,3 +164,24 @@ softer attack, smaller level jumps and a little short room; not just more reverb
 21. Auditory distance cues in rooms, Frontiers in Psychology 2017 — https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2017.00969/pdf
 22. Czedik-Eysenberg & Reuter, DAGA 2025 (timbral feature check) — https://homepage.univie.ac.at/christoph.reuter/unterwegs/DAGA2025_Czedik-Eysenberg_Reuter_PAPER.pdf
 23. Kolarik, Cirstea, Pardhan 2011, Perceiving auditory distance using level and direct-to-reverberant ratio cues — https://ueaeprints.uea.ac.uk/id/eprint/81360
+24. De Man & Reiss 2015, Analysis of peer reviews in music production (J. Art of Record Production 10) — https://www.arpjournal.com/asarpwp/analysis-of-peer-reviews-in-music-production/
+25. De Man, McNally, Reiss 2017, Perceptual evaluation and analysis of reverberation in multitrack music production (JAES) — https://www.academia.edu/31482005/Perceptual_Evaluation_and_Analysis_of_Reverberation_in_Multitrack_Music_Production
+26. An investigation into the efficacy of methods commonly employed by mix engineers to reduce frequency masking (Huddersfield) — https://pure.hud.ac.uk/en/publications/an-investigation-into-the-efficacy-of-methods-commonly-employed-b/
+27. Musical mix clarity prediction using decomposition and perceptual masking thresholds — https://arxiv.org/pdf/2103.12152
+28. Deruty & Pachet, rock premixes: loudness vs brightness by monitoring conditions — https://www.francoispachet.fr/wp-content/uploads/2021/01/deruty-14c.pdf
+29. Croghan, Arehart, Kates 2012, Quality and loudness judgments for music subjected to compression limiting (JASA) — https://labs.sonicfield.org/library/quality-and-loudness-judgments-for-music-subjected-to-compression-limiting
+30. Wendl & Lee 2014, The effect of dynamic range compression on loudness and quality perception in relation to crest factor (AES 136) — https://pure.hud.ac.uk/en/publications/the-effect-of-dynamic-range-compression-on-loudness-and-quality-p/
+31. Listener preferences for alternative dynamic-range-compressed audio configurations (UWL) — https://repository.uwl.ac.uk/id/eprint/4271/
+32. Elicitation and objective grading of "punch" within produced music (Huddersfield) — https://pure.hud.ac.uk/en/publications/elicitation-and-objective-grading-of-punch-within-produced-music/
+33. Kumar, von Kriegstein, Friston, Griffiths 2008, Features versus feelings: mapping unpleasantness of sounds (J. Neurosci); Kumar et al. 2012 — https://iro.uiowa.edu/esploro/outputs/journalArticle/Mapping-unpleasantness-of-sounds-to-their/9984304036602771 , https://www.ncl.ac.uk/press/articles/archive/2012/10/nastynoiseswhydowerecoilatunpleasantsounds.html
+34. von Bismarck 1974, Sharpness as an attribute of the timbre of steady sounds (Acustica) — https://www.ingentaconnect.com/contentone/dav/aaua/1974/00000030/00000003/art00006
+35. Zwicker & Fastl, psychoacoustic annoyance (summary) — https://www.johndcook.com/blog/2016/07/28/quantifying-how-annoying-a-sound-is/
+36. Roughness and fluctuation strength (Fastl & Zwicker, summary) — https://metricgate.com/docs/roughness-asper/
+37. McDermott, Lehr, Oxenham 2010, Individual differences reveal the basis of consonance (Current Biology) — https://mcdermottlab.mit.edu/papers/McDermott_Lehr_Oxenham_2010_consonance_individual_differences.pdf
+38. Marjieh et al. 2024, timbre and consonance (Nature Communications; Cambridge summary) — https://www.cam.ac.uk/research/news/pythagoras-was-wrong-there-are-no-universal-musical-harmonies-study-finds
+39. Surrey IoSR, Metering the perceived quality of mixed music (clarity) — https://iosr.surrey.ac.uk/projects/mixQuality
+40. Gold et al. 2019, Predictability and uncertainty in the pleasure of music (summary) — https://m.medicalxpress.com/news/2019-10-brain-favorite-music.html
+41. Cameron et al. 2022, Undetectable very-low-frequency sound increases dancing at a live concert (Current Biology; summary) — https://www.technologynetworks.com/neuroscience/news/bass-gets-us-grooving-even-if-we-cant-actually-hear-it-368118
+42. J. O. Smith, Desired qualities of late reverberation (PASP) — https://ccrma.stanford.edu/~jos/pasp/Desired_Qualities_Late_Reverberation.html
+43. Dal Santo et al. 2024, Differentiable feedback delay network for colorless reverberation — https://arxiv.org/html/2402.11216v2
+44. Heldmann & Schlecht 2021, The role of modal excitation in colorless reverberation (DAFx) — https://dafx.de/paper-archive/details/0K-_d1jqrD9QKWZOpfwqPA
