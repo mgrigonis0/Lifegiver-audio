@@ -33,7 +33,7 @@ expect(!/[^\x00-\x7f]/.test(src), "plain ASCII (non-ASCII text is written as \\u
 // ---- a mock Max: mgraphics records every call
 function makeMax() {
     const ops = [], sent = [];
-    const mg = { size: [756, 169], relative_coords: 0, autofill: 0, _font: 10 };
+    const mg = { size: [706, 169], relative_coords: 0, autofill: 0, _font: 10 };
     const rec = name => (...a) => { ops.push([name, ...a]); };
     for (const f of ["init", "set_source_rgba", "rectangle", "rectangle_rounded", "fill", "fill_preserve", "stroke", "stroke_preserve",
         "set_line_width", "move_to", "line_to", "arc", "close_path", "new_path", "show_text", "select_font_face", "redraw", "set_line_cap"])
@@ -110,7 +110,7 @@ const before = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join
 click(X.ix("moves") + 20, 38);
 const after = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
 expect(/1\/2/.test(before) && /2\/2/.test(after) && /Level matched/.test(after), "Moves pages: a click shows the rest");
-expect(!paintOps(m).some(o => (o[0] === "move_to" || o[0] === "rectangle_rounded" || o[0] === "rectangle") && o[1] > 756.01), "nothing drawn beyond the device width (756 px)");
+expect(!paintOps(m).some(o => (o[0] === "move_to" || o[0] === "rectangle_rounded" || o[0] === "rectangle") && o[1] > 706.01), "nothing drawn beyond the device width (706 px)");
 
 console.log(failures ? `\n${failures} FAILED` : "\nview: all passed");
 process.exit(failures ? 1 : 0);

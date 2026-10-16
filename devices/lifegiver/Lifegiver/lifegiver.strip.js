@@ -28,8 +28,8 @@ var C = {
     good: [0.498, 0.82, 0.659], warn: [0.953, 0.702, 0.42], ink: [0.06, 0.06, 0.07]
 };
 // layout (1x): the device is DEVICE_W x 169; panels side by side, 4 px apart. Everything below derives from SEC.
-var Y = 4, H = 161, DEVICE_W = 756;
-var SEC = { listen: [4, 72], knobs: [80, 140], stage: [224, 260], moves: [488, 180], out: [672, 80] };
+var Y = 4, H = 161, DEVICE_W = 706;
+var SEC = { listen: [4, 60], knobs: [68, 140], stage: [212, 260], moves: [476, 150], out: [630, 72] };
 var KR = 9.5;   // knob radius (the stage arc sits 3.5 px outside it)
 function ix(sec) { return SEC[sec][0] + 6; }
 function iw(sec) { return SEC[sec][1] - 12; }
@@ -43,11 +43,10 @@ var WORDS = [
 ];
 var ROLES = ["Lead", "Hook", "Support", "Rhythm", "Bass", "Bed", "FX"];
 var VARS = ["A", "B", "C", "D", "E"], VNAMES = ["Polish", "Warm", "Bold", "Vintage", "Driven"];   // rising character
-var MOVE = ["", "Lifting the lows", "Easing the low end", "Warming the low-mids", "Clearing low-mid mud",
-    "Lifting presence", "Softening presence", "Lifting the air", "Darkening the top", "Tilting brighter", "Tilting darker",
-    "Adding warm harmonics", "Adding edgy harmonics", "Steadying level", "Lowering what's between notes",
-    "Sharpening attacks", "Softening attacks", "Lengthening sustain", "Shortening tails", "Clearing lows below",
-    "Easing highs above", "Widening, lows kept mono", "Narrowing", "Stereo pan", "Level matched to the input", "Set back"];
+var MOVE = ["", "Lifting lows", "Easing lows", "Warming low-mids", "Clearing low-mid mud", "Lifting presence",
+    "Softening presence", "Lifting air", "Darkening top", "Tilting brighter", "Tilting darker", "Warm harmonics",
+    "Edgy harmonics", "Steadying level", "Lowering gaps", "Sharper attacks", "Softer attacks", "Longer sustain",
+    "Shorter tails", "Low cut", "High cut", "Widening, lows mono", "Narrowing", "Pan", "Level matched", "Set back"];
 var NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 // the Live parameters (as last heard from them)
@@ -147,17 +146,17 @@ function paintListen() {
 }
 
 function factLines() {
-    if (T.cap === 1) return ["Play the", "sound now."];
-    if (T.cap === 2) return ["Keep playing.", "Stops by itself."];
-    if (!F.valid) return ["No takes yet.", "Press Arm,", "then play."];
+    if (T.cap === 1) return ["Play the", "sound."];
+    if (T.cap === 2) return ["Keep", "playing.", "Stops by", "itself."];
+    if (!F.valid) return ["No takes.", "Press Arm,", "then play."];
     var a = [];
     var pitch = F.lo > 0 ? (noteName(F.lo) === noteName(F.hi) ? noteName(F.lo) : noteName(F.lo) + "\u2013" + noteName(F.hi)) : "no pitch";
-    a.push(F.live > 0 ? F.live + " take" + (F.live > 1 ? "s" : "") : "saved reading");
+    a.push(F.live > 0 ? F.live + " take" + (F.live > 1 ? "s" : "") : "saved");
     a.push(pitch);
-    a.push(["noisy", "part pitched", "harmonic"][F.harm]);
-    a.push(["plucked", "medium decay", "sustained"][F.sus]);
+    a.push(["noisy", "part pitch", "harmonic"][F.harm]);
+    a.push(["plucked", "mid decay", "sustained"][F.sus]);
     a.push("stereo " + F.corr.toFixed(1));
-    if (F.live === 0) a.push("re-listen: refine");
+    if (F.live === 0) { a.push("re-listen"); a.push("to refine"); }
     return a;
 }
 
@@ -178,10 +177,9 @@ function paintKnob(cx, cy, val, stagePush, c, active) {
 function paintKnobs() {
     panel("knobs");
     var x = ix("knobs"), w = iw("knobs");
+    // each title sits over its own half of the line: Tone over the orange knobs, Dynamics over the blue ones
     text("TONE", x, Y + 14, 9.5, C.tone, true, 0);
-    var tws = tw("TONE");
-    text(" \u00b7 ", x + tws, Y + 14, 9.5, [0.33, 0.33, 0.33], true, 0);
-    text("DYNAMICS", x + tws + tw(" \u00b7 "), Y + 14, 9.5, C.dyn, true, 0);
+    text("DYNAMICS", x + w / 2, Y + 14, 9.5, C.dyn, true, 0, w / 2);
     box(x, Y + 18, w / 2, 2, 0, C.tone, 0.6);
     box(x + w / 2, Y + 18, w / 2, 2, 0, C.dyn, 0.6);
     var ready = F.valid;
