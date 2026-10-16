@@ -64,6 +64,8 @@ Stable rules for every device in this repo. Device-specific state lives in `devi
 - Never a dict name in a pattr: a pattr given `dictionary <name>` saves only the name, `---` names change on reload, and the old name can point at another device's dict (Lifegiver 15a).
 - An unnamed `dict` with parameter mode (also in `saved_object_attributes`, with `"embed": 0`) was restored too in 15e; one store is enough, prefer the pattr.
 - No new symbols per save (Max never frees symbols): encode text as character codes.
+- Keep old sets opening: new Live parameters go at the end of the generator's list, and saved arrays (plans, tables)
+  only ever grow at the end, so an older set reads as a prefix and new values get neutral defaults.
 
 ## Max JS rules
 
