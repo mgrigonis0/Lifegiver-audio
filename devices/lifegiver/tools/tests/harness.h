@@ -1,10 +1,12 @@
-// Test harness: the real engine (processor + controller) with a fake host that keeps the saved state, synthetic
-// signals, and the measures the tests share. Time advances in blocks; the controller ticks every 15 ms.
+// Test harness: the real engine (processor + controller) with a fake host that plays the patch: the hidden [pattr]
+// store, the worker thread (jobs run at the next tick, or held back on request), the view (keeps the last message
+// of each kind) and Live parameters set by the engine. Time advances in blocks; the controller ticks every 15 ms.
 #pragma once
 // The allocation counter below replaces operator new/delete with malloc/free (a matched pair); GCC's
 // -Wmismatched-new-delete can't see that and warns at every inlined container deallocation.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
 #include <algorithm>
 #include <atomic>
@@ -13,12 +15,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <functional>
+#include <map>
 #include <memory>
 #include <new>
 #include <string>
 #include <vector>
 
 #include "../../source/engine/controller.h"
+#include "signals.h"
 
 // ---- allocation counter: any allocation while `g_watchAlloc` is on is counted (the audio thread must never allocate)
 inline std::atomic<bool> g_watchAlloc{false};
@@ -58,62 +64,57 @@ inline Stereo sineSig(double f, double sec, double sr, double amp = 0.5) {
     return s;
 }
 
-// ---- the fake host --------------------------------------------------------------------------------
-// It plays the patch's two stores: [pattr state] (answers "statelist <its value>") and the unnamed [dict] (answers
-// with its "state" key). Each can be broken (`works` false: it never keeps what it is given), restored by Live at
-// `readyAt` (before that it holds its fresh value), or pushed out by Live late on its own (`lateAt`).
-struct Store {
-    std::string name;
-    std::vector<Controller::Atom> held, fresh;
-    bool works = true;
-    double readyAt = 0;
-    double lateAt = -1;                        // Live restores the set's value at this time and the store outputs it
-    std::vector<Controller::Atom> lateValue;
-    bool lateDone = false;
-};
-
-inline std::vector<Controller::Atom> atoms(const std::vector<double>& v) {
-    std::vector<Controller::Atom> a;
-    for (double d : v) { Controller::Atom x; x.d = d; a.push_back(x); }
-    return a;
+inline Stereo fromAudio(const Audio& a) {
+    Stereo s;
+    s.l.assign(a.l.begin(), a.l.end());
+    s.r.assign(a.r.begin(), a.r.end());
+    return s;
 }
 
+// ---- the fake host --------------------------------------------------------------------------------
 struct TestHost : Host {
-    Store pattr = makeStore("pattr", {Controller::Atom()});   // a new device's pattr: a single 0
-    Store dict = makeStore("dict", {});                       // a new device's dict: no "state" key
-    static Store makeStore(const std::string& n, const std::vector<Controller::Atom>& fresh) {
-        Store s; s.name = n; s.held = fresh; s.fresh = fresh; return s;
-    }
+    // the hidden [pattr state]: a new device's pattr holds a single 0 (it never had a value stored)
+    std::vector<Controller::Atom> pattr = {Controller::Atom()};
+    bool pattrWorks = true;
     double now = 0;
     int saves = 0, requests = 0;
     bool echo = true;                    // pattr passes a stored value straight back out (assume the worst)
+    bool holdJobs = false;               // keep worker jobs waiting (tests of results arriving late)
     std::vector<std::string> logs;
+    std::map<std::string, std::vector<double>> uiLast;
+    std::map<std::string, int> uiCount;
+    std::map<std::string, double> params;
+    std::deque<std::pair<std::function<void()>, std::function<void()>>> jobs;
     Controller* ctl = nullptr;
-    void answer(Store& s, const std::vector<Controller::Atom>& v) {
-        if (s.name == "pattr") ctl->message("statelist", v); else ctl->stateFrom("dict", v);
-    }
-    void requestState() override {
-        requests++;
-        for (Store* s : {&pattr, &dict}) answer(*s, now >= s->readyAt ? s->held : s->fresh);
-    }
-    std::vector<uint32_t> savedIds;      // the id written by every save, in order
+    std::vector<uint32_t> savedIds;
+
+    void requestState() override { requests++; ctl->message("statelist", pattr); }
     void storeState(const std::vector<double>& v) override {
         saves++;
         StateDoc d;
         if (decodeState(v, d)) savedIds.push_back((uint32_t)d.get1("id", 0));
-        for (Store* s : {&pattr, &dict}) if (s->works) s->held = atoms(v);
-        if (echo && pattr.works) ctl->message("statelist", pattr.held);
-    }
-    void tick() {
-        for (Store* s : {&pattr, &dict})
-            if (s->lateAt >= 0 && !s->lateDone && now >= s->lateAt) { s->lateDone = true; s->held = s->lateValue; answer(*s, s->held); }
+        if (pattrWorks) {
+            pattr.clear();
+            for (double x : v) { Controller::Atom a; a.d = x; pattr.push_back(a); }
+            if (echo) ctl->message("statelist", pattr);
+        }
     }
     void log(const std::string& t) override { logs.push_back(t); }
+    void ui(const std::string& sel, const std::vector<double>& v) override { uiLast[sel] = v; uiCount[sel]++; }
+    void param(const std::string& name, double v) override { params[name] = v; }
+    void post(std::function<void()> work, std::function<void()> done) override { jobs.emplace_back(std::move(work), std::move(done)); }
+    void runJobs() {
+        while (!holdJobs && !jobs.empty()) {
+            auto j = std::move(jobs.front());
+            jobs.pop_front();
+            j.first();
+            j.second();
+        }
+    }
     bool logged(const std::string& part) const { for (auto& l : logs) if (l.find(part) != std::string::npos) return true; return false; }
-    // what a store holds, decoded
-    static bool doc(const Store& s, StateDoc& d) {
+    static bool doc(const std::vector<Controller::Atom>& held, StateDoc& d) {
         std::vector<double> v;
-        for (auto& a : s.held) { if (!a.num) return false; v.push_back(a.d); }
+        for (auto& a : held) { if (!a.num) return false; v.push_back(a.d); }
         return decodeState(v, d);
     }
 };
@@ -136,7 +137,7 @@ struct Rig {
         for (double d : nums) { Controller::Atom x; x.d = d; a.push_back(x); }
         ctl->message(sel, a);
     }
-    void tick() { host.now = ms; if (ms - lastTick >= 15) { lastTick = ms; host.tick(); ctl->tick(ms); } }
+    void tick() { host.now = ms; if (ms - lastTick >= 15) { lastTick = ms; host.runJobs(); ctl->tick(ms); } }
     void init() { host.now = ms; ctl->init(ms); }
     // process `in` from `from` for `n` samples in blocks of `block`, appending to `out`
     void run(const Stereo& in, size_t from, size_t n, Stereo& out, long block = 64) {
@@ -155,6 +156,13 @@ struct Rig {
         Stereo z; z.l.assign((size_t)(sec * sr), 0.0); z.r = z.l;
         Stereo o;
         run(z, 0, z.size(), o);
+    }
+    // play a sound with Arm pressed (Listen), then let the worker finish
+    void listen(const Audio& a) {
+        msg("arm");
+        Stereo s = fromAudio(a), o;
+        run(s, 0, s.size(), o);
+        idle(0.5);
     }
 };
 
@@ -182,6 +190,20 @@ inline bool bitEqual(double a, double b) { return std::memcmp(&a, &b, sizeof a) 
 inline int expect(bool ok, const char* what) {
     std::printf("  [%s] %s\n", ok ? " ok " : "FAIL", what);
     return ok ? 0 : 1;
+}
+
+// a plan with every module working (for safety, click and CPU tests)
+inline Plan busyPlan() {
+    Plan p;
+    p[P_LOWCUT_ON] = 1; p[P_LOWCUT_HZ] = 80;
+    p[P_WEIGHT_DB] = 3; p[P_WARM_DB] = -2; p[P_BITE_DB] = 4; p[P_AIR_DB] = 3; p[P_TILT_DB] = -1.5;
+    p[P_SAT_DRIVE] = 0.4; p[P_SAT_REF] = 0.3;
+    p[P_COMP_AMT] = 0.7; p[P_COMP_THR] = -20; p[P_EXP_AMT] = 0.3; p[P_EXP_THR] = -45;
+    p[P_TS_ATTACK] = 0.5; p[P_TS_SUSTAIN] = -0.4;
+    p[P_HIGHCUT_ON] = 1; p[P_HIGHCUT_HZ] = 12000;
+    p[P_WIDTH] = 1.4; p[P_PAN] = 0.3;
+    p[P_MAKEUP_DB] = 2; p[P_STAGE_DB] = -1.5;
+    return p;
 }
 
 }  // namespace test
