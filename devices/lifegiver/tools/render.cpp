@@ -2,7 +2,7 @@
 //
 //   render bench <stems dir> <out dir>     every stem: Listen (simulated Arm, up to 4 takes) → reading → solve for its
 //                                          role → Moves → renders (processed + loudness-matched original) as WAV
-//   render file <in.wav> <out.wav> [role=Lead] [knob.Bite=3] [depth=0.8] [vars=70,0,30,0,0] ...
+//   render file <in.wav> <out.wav> [role=Lead] [knob.Bite=3] [depth=0.8] [vars=70,0,30,0,0] [clean=40] ...
 //
 // Build: g++ -std=c++17 -O2 -o render render.cpp -lpthread
 #if defined(__GNUC__) && !defined(__clang__)
@@ -38,8 +38,9 @@ static const char* const MOVE_TEXT[] = {
     "Softening attacks", "Lengthening sustain", "Shortening tails", "Clearing lows below", "Easing highs above",
     "Widening, lows kept mono", "Narrowing", "Stereo pan", "Level matched to the input", "Set back",
     "Warm harmonics after dynamics", "Edgy harmonics after dynamics", "Easing mud when it builds", "Easing harshness when it builds",
-    "Taming resonances", "Smoothing grit", "Holding the lows", "Holding the mids", "Holding the highs", "Room (distance)"};
-static_assert(sizeof(MOVE_TEXT) / sizeof(MOVE_TEXT[0]) == MV_AMBIENCE + 1, "a name for every move");
+    "Taming resonances", "Smoothing grit", "Holding the lows", "Holding the mids", "Holding the highs", "Room (distance)",
+    "Taming harshness"};
+static_assert(sizeof(MOVE_TEXT) / sizeof(MOVE_TEXT[0]) == MV_EXCESS + 1, "a name for every move");
 
 // Listen, as the device does it: Arm, feed the audio in blocks, take what the capture keeps
 static Audio listen(const Audio& src, size_t from, double sr) {
@@ -83,6 +84,8 @@ static void printProfile(const Profile& p) {
     std::printf("%s · %s · stereo corr %.2f · %.1f LUFS · lowest %.0f Hz\n",
                 p.harmonic > 0.6 ? "harmonic" : (p.harmonic > 0.3 ? "partly pitched" : "noisy"),
                 p.sustained > 0.66 ? "sustained" : (p.sustained > 0.33 ? "medium decay" : "plucked/hit"), p.corr, p.loudness, p.lowestHz);
+    if (p.excHz > 0) std::printf("  sticks out: %+.1f dB at %.0f Hz (bell Q %.1f)\n", p.excDb, p.excHz, p.excQ);
+    else std::printf("  sticks out: nothing in the harsh range\n");
     std::printf("  reads:");
     for (int q = 0; q < NQ; q++) {
         const int w = readingWord(q, p.reading[q], p.readValid[q]);
@@ -102,6 +105,7 @@ static void printSolution(const Solution& s) {
         else if (m.kind == MV_MAKEUP || m.kind == MV_STAGE_LEVEL) std::printf(" %+.1f dB", m.value);
         else if (m.kind == MV_WIDER || m.kind == MV_NARROWER) std::printf(" side ×%.2f", m.value);
         else if (m.kind == MV_PAN) std::printf(" %+.2f", m.value);
+        else if (m.kind == MV_EXCESS) std::printf(" %.0f Hz", m.value);
         else if (m.kind <= MV_TILT_DOWN) std::printf(" %+.1f dB", m.value);
         else if (m.kind == MV_COMP) std::printf(" release %.0f ms", m.value);
         else std::printf(" %.2f", m.value);
@@ -218,6 +222,7 @@ static int file(int argc, char** argv) {
         else if (k == "lo") in.lo = std::atof(v.c_str());
         else if (k == "hi") in.hi = std::atof(v.c_str());
         else if (k == "fit") in.fit = std::atof(v.c_str());
+        else if (k == "clean") in.clean = std::atof(v.c_str()) / 100;
         else if (k == "vars") { double x[5] = {0, 0, 0, 0, 0}; std::sscanf(v.c_str(), "%lf,%lf,%lf,%lf,%lf", &x[0], &x[1], &x[2], &x[3], &x[4]); for (int j = 0; j < 5; j++) in.vars[j] = x[j] / 100; }
     }
     auto ts = makeTakeSet({listen(src, 0, src.sr)});

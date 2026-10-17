@@ -181,6 +181,7 @@ public:
             pv.insert(pv.end(), prof.resHz, prof.resHz + 4);
             pv.insert(pv.end(), prof.dynThr, prof.dynThr + 2);
             pv.insert(pv.end(), prof.mbThr, prof.mbThr + 3);
+            if (prof.has17b) { pv.push_back(prof.excHz); pv.push_back(prof.excQ); pv.push_back(prof.excDb); pv.push_back(prof.excThr); }
         }
         d.num["prof"] = pv;
         std::vector<double> rd;
@@ -455,16 +456,20 @@ private:
     void readSound(const StateDoc& d) {
         const std::vector<double>* pv = d.get("prof");
         const std::vector<double>* rd = d.get("read");
-        if (!pv || (pv->size() != 14 && pv->size() != 23) || !rd || rd->size() != (size_t)(3 * NQ)) return;
+        if (!pv || (pv->size() != 14 && pv->size() != 23 && pv->size() != 27) || !rd || rd->size() != (size_t)(3 * NQ)) return;
         Profile p;
         p.takes = (int)(*pv)[0]; p.activeSec = (*pv)[1]; p.onsets = (int)(*pv)[2]; p.f0min = (*pv)[3]; p.f0max = (*pv)[4];
         p.harmonic = (*pv)[5]; p.sustained = (*pv)[6]; p.corr = (*pv)[7]; p.sideDb = (*pv)[8]; p.loudness = (*pv)[9];
         p.lowestHz = (*pv)[10]; p.peakRef = (*pv)[11]; p.levelHi = (*pv)[12]; p.levelLo = (*pv)[13];
-        if (pv->size() == 23) {   // 16c on: the dynamic modules' places and levels
+        if (pv->size() >= 23) {   // 16c on: the dynamic modules' places and levels
             for (int k = 0; k < 4; k++) p.resHz[k] = (*pv)[(size_t)(14 + k)];
             for (int k = 0; k < 2; k++) p.dynThr[k] = (*pv)[(size_t)(18 + k)];
             for (int k = 0; k < 3; k++) p.mbThr[k] = (*pv)[(size_t)(20 + k)];
             p.has16c = true;
+            if (pv->size() == 27) {   // 17b on: the excess Clean tames
+                p.excHz = (*pv)[23]; p.excQ = (*pv)[24]; p.excDb = (*pv)[25]; p.excThr = (*pv)[26];
+                p.has17b = true;
+            }
         } else {   // an older set: the multiband's levels from the overall ones, no resonances known
             for (int k = 0; k < 3; k++) p.mbThr[k] = p.levelHi - 6.0 * k;
         }
@@ -487,7 +492,9 @@ private:
             else if (sv->size() == solSize(NT_16B, true)) nt = NT_16B;
             else if (sv->size() == solSize(NT_16B, false)) { nt = NT_16B; raw = false; }
         }
-        auto planOk = [](const std::vector<double>* v) { return v && (v->size() == (size_t)NP || v->size() == (size_t)NP_16B); };
+        auto planOk = [](const std::vector<double>* v) {
+            return v && (v->size() == (size_t)NP || v->size() == (size_t)NP_16C || v->size() == (size_t)NP_16B);
+        };
         auto planFrom = [](const std::vector<double>& v, Plan& out) { out = Plan(); for (size_t i = 0; i < v.size() && i < (size_t)NP; i++) out[(int)i] = v[i]; };
         if (nt > 0 && planOk(sp)) {
             size_t k = 0;

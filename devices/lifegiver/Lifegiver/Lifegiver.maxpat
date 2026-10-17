@@ -172,7 +172,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-17a"
+					"text": "patch 2026-10-17b"
 				}
 			},
 			{
@@ -271,7 +271,7 @@
 					"filename": "lifegiver.strip.js",
 					"parameter_enable": 0,
 					"border": 0,
-					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched; Scale multiplies the processing (0 = none, 100 % = as planned, up to 400 %); Dyn/Avg: the dynamic tools follow the sound or hold their average (less CPU). The output always matches the input's loudness; Gain (centre = 0 dB) is your own trim after everything.",
+					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched; Scale multiplies the processing (0 = none, 100 % = as planned, up to 400 %); Dyn/Avg: the dynamic tools follow the sound or hold their average (less CPU). The output always matches the input's loudness; Gain (centre = 0 dB) is your own trim after everything.",
 					"annotation_name": "Lifegiver"
 				}
 			},

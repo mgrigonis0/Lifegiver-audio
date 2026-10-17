@@ -413,3 +413,29 @@ latency); tuning by ear on the stems.
 - Live matching of takes while playing; saturation as a default move.
 - Rule-only planning without testing the plan on the take: can't know if the target was hit.
 - gen~ engine: compiles silently to zero; C++ is faster and testable offline (proven in wanderer-synth).
+
+**17b: taming through the reading, shaping only on request** (`profile.h`, `chain.h`, `brain.h`, the view):
+- The user's rule: the device tames what is excessive by itself (through Clean); it beautifies only when asked
+  (knobs, A–E, the stage's distance). So **roles only place** the sound (distance, width, range): the role quality
+  pushes are gone (Lead's Bite/Air, Rhythm's Punch, Bass's Weight…). Distance keeps its cues (back = less presence,
+  air, attack; smaller level jumps); 16c's extra steadiness at the front was unintended and is gone.
+- **Edge removed** from the stage (the diamond): it duplicated Texture and Steady. Its Live parameter stays, unused.
+- **Identity strength** replaces Identity ↔ Fit on the strip (same Live parameter "Identity Fit"; strength = 1 − fit).
+  It weighs holding the qualities nobody asked to change (keep weight 0.1 … 0.6), and from 25 % it enables their own
+  two-way EQ bands as holders, so a move's side effect is held back (Air +8 on a lead: the other qualities moved 23 %
+  less at 100 % than at 0 %). Build 2 adds the sound's specialities on top.
+- **Excess** (the reading): what stands above BOTH its neighbours (5/6–2 octaves away) in the sound's own long-term
+  spectrum, 2–8 kHz, weighted to 2.5–5.5 kHz; noisy sounds judged against their natural ~3 dB/octave rise; narrow
+  rings left to the resonance tamer. Judged only against the sound's own shape, never a typical sound. Variants tried
+  and rejected: the average of the sides and a whole-sound tilt fit (both flagged the voice's natural presence).
+  On the test sounds: voice, strings, piano, sax, clarinet, trumpet, an evenly bright hat, the jazz mix: nothing found.
+- **Clean tames it** (excess tamer, after the resonance tamer): a dynamic bell at the excess, cutting what the band
+  stands above its own usual share: at its usual level the excess beyond 1.5 dB, more (1:1, up to 12 dB) when it
+  builds. Depth = Clean, and 0 when presence is asked (Bite up from the knob or a character: taming never fights an
+  ask). Average mode holds its average. A piercing hat (+9 dB at 4.3 kHz): −1 dB in the 2.5–5.5 kHz zone at Clean
+  40 %, −2.5 dB at 100 % (the bell itself −4 dB).
+- **A–E faders**: each letter a 26 × 28 px fader (drag up/down, shift fine, double-click 0; a click without moving
+  auditions).
+- Measured on 11 stems vs 17a: first plan 2.4 → 0.9 s, solve 2.9 → 1.7 s, character reach A 71 → 72, B 71 → 77,
+  C 74 → 80, D 66 → 74, E 62 → 67 %.
+

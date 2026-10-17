@@ -96,9 +96,20 @@ expect(click(X.ix("stage") + 19, 26 + 0 * 15 + 6).join() === "pickrole 4", "the 
 const sv = click(X.sx(134), X.sy(18 + 0.2 * 70));
 expect(sv.some(s => /^p depth 0\.2/.test(s)) && sv.some(s => /^p pan 0$/.test(s)), "clicking the stage floor moves the sound there (depth, pan)");
 m.ctx.ondrag(0, 0, 0);
-expect(click(vc.x + 5, 106).join() === "solo 0", "the A button auditions A alone");
-const bar = click(vc.x + vc.w / 2, 119);
-expect(bar.some(s => /^p vara 50/.test(s)), "the A bar sets A's strength (halfway = 50 %)");
+// A-E faders (17b): a click without moving auditions; a vertical drag sets the strength (70 px = 100 %)
+click(vc.x + vc.w / 2, X.VFY + 14);
+m.sent.length = 0; m.ctx.ondrag(vc.x + vc.w / 2, X.VFY + 14, 0, 0, 0, 0, 0, 0);
+expect(m.sent.join() === "solo 0", "a click on the A fader (no drag) auditions A alone");
+click(vc.x + vc.w / 2, X.VFY + 20);
+const fd = dragTo(vc.x + vc.w / 2, X.VFY + 20 - 35);
+expect(fd.length > 0 && /^p vara 50$/.test(fd[fd.length - 1]), "dragging the A fader up 35 px: 0 -> 50 %");
+m.sent.length = 0; m.ctx.ondrag(vc.x + vc.w / 2, X.VFY - 15, 0, 0, 0, 0, 0, 0);
+expect(!m.sent.some(s => /^solo/.test(s)), "releasing after a drag doesn't audition");
+const vd = X.varCell(3);
+expect(vd.w >= 24 && X.VFH >= 26, "the faders are big targets (about 26 x 28 px, the old bar was 5 px tall)");
+m.sent.length = 0;
+m.ctx.ondblclick(vc.x + vc.w / 2, X.VFY + 10);
+expect(m.sent.some(s => s === "p vara 0"), "double-click puts a character back to 0");
 m.ctx.ondrag(0, 0, 0);
 expect(click(cr[0] + 20, cr[1] + 8).join() === "compare 1", "Compare toggles");
 const sk = X.outKnob(1);
@@ -142,7 +153,17 @@ msg(m, "moves", 5, 0.9, 2, 1.5, 1.7, 13, 141, 7, 0.6, 0.6, 15, 0.14, 5, 0.9, 1.0
 m.ctx.ondblclick(kc.x + kc.w / 2, kc.y + 30);
 expect(m.sent.some(s => s === "p bite 0"), "double-click resets a knob to 0");
 const fit = click(fr[0] + fr[2] - 0.5, 40);
-expect(fit.some(s => /^p fit 0\.99/.test(s)), "Identity <-> Fit bar: the right end is Fit");
+expect(fit.some(s => /^p fit 0(\.01)?$/.test(s)), "Identity bar: the right end is full Identity strength (fit 0)");
+m.ctx.ondrag(0, 0, 0);
+const fit2 = click(fr[0] + fr[2] * 0.25, 40);
+expect(fit2.some(s => /^p fit 0\.75$/.test(s)), "Identity bar: a quarter along = 25 % strength");
+m.ctx.ondrag(0, 0, 0);
+msg(m, "fit", 0.3);
+const idt = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+expect(/Identity/.test(idt) && /70%/.test(idt) && !/Fit/.test(idt), "the Identity bar shows its strength (fit 0.3 -> 70%)");
+// no Edge handle on the stage (17b)
+const st = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+expect(!/drive|driven|smooth \u00b7/.test(st), "the stage line no longer talks about drive (Edge is gone)");
 m.ctx.ondrag(0, 0, 0);
 // Moves: 7 moves = 2 pages; a click on the list shows the next page
 const before = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");

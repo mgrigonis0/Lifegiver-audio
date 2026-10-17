@@ -49,8 +49,8 @@ var MOVE = ["", "Lifting lows", "Easing lows", "Warming low-mids", "Clearing low
     "Edgy harmonics", "Steadying level", "Lowering gaps", "Sharper attacks", "Softer attacks", "Longer sustain",
     "Shorter tails", "Low cut", "High cut", "Widening, lows mono", "Narrowing", "Pan", "Level matched", "Set back",
     "Warm harmonics, post", "Edgy harmonics, post", "Easing mud", "Easing harshness", "Taming", "Smoothing grit",
-    "Holding lows", "Holding mids", "Holding highs", "Room"];
-var HELD = { 28: 1, 29: 1, 30: 1, 31: 1, 32: 1, 33: 1, 34: 1 };   // dynamic moves: "held" in Average mode
+    "Holding lows", "Holding mids", "Holding highs", "Room", "Taming harshness"];
+var HELD = { 28: 1, 29: 1, 30: 1, 31: 1, 32: 1, 33: 1, 34: 1, 36: 1 };   // dynamic moves: "held" in Average mode
 var NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 // the Live parameters (as last heard from them)
@@ -220,7 +220,7 @@ function stagePath(g) {
     var N = 36;
     for (var i = 0; i <= N; i++) {
         var a = 2 * Math.PI * (i % N) / N;
-        var k = 1 + ((i % N) % 2 === 0 ? 1 : -1) * P.edge * 0.3 + 0.03 * Math.sin(3 * a);
+        var k = 1 + 0.03 * Math.sin(3 * a);
         var px = sx(g.cx + Math.cos(a) * g.rx * k), py = sy(g.cy + Math.sin(a) * g.ry * k);
         if (i === 0) mgraphics.move_to(px, py); else mgraphics.line_to(px, py);
     }
@@ -232,7 +232,6 @@ function stageWords() {
     return (P.depth > 0.66 ? "front" : (P.depth < 0.33 ? "back, darker" : "middle")) +
         " \u00b7 " + (P.width < 0.3 ? "narrow" : (P.width > 0.7 ? "wide" : "medium")) +
         " \u00b7 " + fmtHz(P.lo) + "\u2013" + fmtHz(P.hi) +
-        " \u00b7 " + (P.edge < 0.2 ? "smooth" : (P.edge > 0.6 ? "driven" : "some drive")) +
         " \u00b7 " + (lvl > -0.05 ? "0 dB" : lvl.toFixed(1) + " dB");
 }
 
@@ -264,13 +263,6 @@ function paintStage() {
     mgraphics.fill_preserve();
     col(C.stagePale, a); mgraphics.set_line_width(1); mgraphics.stroke();
     dot(sx(g.cx), sy(g.cy), 1.4, [0.91, 1, 0.99], a);
-    var top = g.cy - g.ry * (1 + P.edge * 0.3), edgeY = top - 5 - P.edge * 14;
-    line(sx(g.cx), sy(top), sx(g.cx), sy(edgeY), C.stagePale, 0.7, a);
-    col(C.floor, a);
-    mgraphics.new_path();
-    mgraphics.move_to(sx(g.cx), sy(edgeY) - 3.5); mgraphics.line_to(sx(g.cx) + 3.5, sy(edgeY));
-    mgraphics.line_to(sx(g.cx), sy(edgeY) + 3.5); mgraphics.line_to(sx(g.cx) - 3.5, sy(edgeY)); mgraphics.close_path();
-    mgraphics.fill_preserve(); col(C.stagePale, a); mgraphics.set_line_width(1); mgraphics.stroke();
     dot(sx(g.cx - g.rx), sy(g.cy), 3, C.floor, a); ring(sx(g.cx - g.rx), sy(g.cy), 3, C.stagePale, 1, a);
     dot(sx(g.cx + g.rx), sy(g.cy), 3, C.floor, a); ring(sx(g.cx + g.rx), sy(g.cy), 3, C.stagePale, 1, a);
     // the range it owns: lows at the bottom, highs at the top
@@ -297,6 +289,7 @@ function moveText(m) {
     if (m[0] === 13) s += m[1] >= 250 ? ", slow" : (m[1] <= 60 ? ", fast" : "");
     if (m[0] === 23) s += m[1] < 0 ? " L" + Math.round(-m[1] * 100) : " R" + Math.round(m[1] * 100);
     if (m[0] === 30) s += " " + Math.round(m[1]) + (Math.round(m[1]) === 1 ? " ring" : " rings");
+    if (m[0] === 36) s += " " + fmtHz(m[1]);
     if (HELD[m[0]] && P.dynamics >= 0.5) s += ", held";
     return s;
 }
@@ -307,12 +300,13 @@ function moveResult(m) {
     if (m[0] === 22) return "narrower";
     if (m[0] === 23) return "pan";
     if (m[0] === 24 || m[0] === 25) return sgn(m[1]) + " dB";
-    if (m[0] === 30) return "clean";
+    if (m[0] === 30 || m[0] === 36) return "clean";
     if (m[0] === 35) return "distance";
     return "";
 }
 function movePages() { return Math.max(1, Math.ceil(MV.length / 5)); }
 function varCell(v) { var cw = (iw("moves") - 8) / 5; return { x: ix("moves") + v * (cw + 2), w: cw }; }
+var VFY = 100, VFH = 28;   // the A-E faders (17b): drag up/down anywhere on one
 
 function paintMoves() {
     panel("moves");
@@ -334,20 +328,20 @@ function paintMoves() {
     else if (!MV.length) text(T.busy ? "Planning\u2026" : "Nothing to do.", x, 35, 7.5, C.dim, false, 0, w);
     if (movePages() > 1) text((MPAGE + 1) + "/" + movePages() + "  more \u203a", x + w, 95, 7, C.movesPale, false, 2, w);
     for (var v = 0; v < 5; v++) {
-        var c = varCell(v), pct = P["var" + "abcde".charAt(v)], solo = SOLO === v;
-        box(c.x, 100, c.w, 14, 2, pct > 0 ? C.moves : [0.2, 0.2, 0.2], a);
-        if (solo) frame(c.x, 100, c.w, 14, 2, C.movesPale, a, 1.5);
-        text(VARS[v], c.x + c.w / 2, 110.5, 8.5, pct > 0 ? [0.106, 0.082, 0.188] : [0.74, 0.74, 0.74], true, 1, c.w, a);
-        box(c.x, 117, c.w, 5, 2.5, C.well, a);
-        if (pct > 0) box(c.x, 117, c.w * pct / 100, 5, 2.5, C.moves, a);
-        text(VNAMES[v], c.x + c.w / 2, 131, 6.5, [0.6, 0.6, 0.6], false, 1, c.w + 1, a);
-        text(solo ? "solo" : Math.round(pct) + "%", c.x + c.w / 2, 141, 6.5, [0.6, 0.6, 0.6], false, 1, c.w, a);
-        if (VR[v] >= 0) text(VR[v] >= 0.9 ? "hits" : Math.round(VR[v] * 100) + "%", c.x + c.w / 2, 151, 6.5, VR[v] >= 0.9 ? C.good : C.warn, false, 1, c.w, a);
+        var c = varCell(v), pct = P["var" + "abcde".charAt(v)], solo = SOLO === v, fill = VFH * clamp(pct, 0, 100) / 100;
+        box(c.x, VFY, c.w, VFH, 3, [0.2, 0.2, 0.2], a);
+        if (pct > 0) box(c.x, VFY + VFH - fill, c.w, fill, 3, C.moves, a);
+        if (solo) frame(c.x, VFY, c.w, VFH, 3, C.movesPale, a, 1.5);
+        text(VARS[v], c.x + c.w / 2, VFY + 11, 8.5, pct > 40 ? [0.106, 0.082, 0.188] : [0.86, 0.86, 0.86], true, 1, c.w, a);
+        text(VNAMES[v], c.x + c.w / 2, 136, 6.5, [0.6, 0.6, 0.6], false, 1, c.w + 1, a);
+        text(solo ? "solo" : Math.round(pct) + "%", c.x + c.w / 2, 145, 6.5, [0.86, 0.86, 0.86], false, 1, c.w, a);
+        if (VR[v] >= 0) text(VR[v] >= 0.9 ? "hits" : Math.round(VR[v] * 100) + "%", c.x + c.w / 2, 154, 6.5, VR[v] >= 0.9 ? C.good : C.warn, false, 1, c.w, a);
     }
-    text("A subtle \u2192 E strong", x + w / 2, 161, 6, [0.42, 0.42, 0.42], false, 1, w, a);
+    text("A subtle \u2192 E strong", x + w / 2, 164, 6, [0.42, 0.42, 0.42], false, 1, w, a);
 }
 
-// Out, top to bottom: Identity <-> Fit, Clean, the Amount and Scale knobs, Dynamic | Average, Compare, Gain (16d)
+// Out, top to bottom: Identity (17b: its strength; the Live parameter is "Identity Fit", fit = 1 - strength), Clean,
+// the Amount and Scale knobs, Dynamic | Average, Compare, Gain
 function outKnob(i) {
     var x = ix("out"), w = iw("out");
     return { cx: x + w * (i ? 0.75 : 0.25), cy: 85, name: i ? "Scale" : "Amount", p: i ? "scale" : "amount", max: i ? 400 : 100 };
@@ -362,10 +356,11 @@ function paintOut() {
     panel("out");
     header("out", "OUT", C.out);
     var x = ix("out"), w = iw("out");
+    var ids = clamp(1 - P.fit, 0, 1);
     text("Identity", x, 34, 7, [0.74, 0.74, 0.74], false, 0);
-    text("Fit", x + w, 34, 7, [0.74, 0.74, 0.74], false, 2);
+    text(Math.round(ids * 100) + "%", x + w, 34, 7, [0.74, 0.74, 0.74], false, 2);
     box(x, 38, w, 5, 2.5, C.well);
-    box(x + P.fit * w - 2, 36, 4, 9, 2, C.out);
+    if (ids > 0) box(x, 38, w * ids, 5, 2.5, C.out);
     text("Clean", x, 55, 7, [0.74, 0.74, 0.74], false, 0);
     text(Math.round(P.clean) + "%", x + w, 55, 7, [0.74, 0.74, 0.74], false, 2);
     box(x, 59, w, 5, 2.5, C.well);
@@ -425,8 +420,6 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
         for (var r = 0; r < 7; r++) if (inRect(x, y, [ix("stage"), 26 + r * 15, 39, 13])) { outlet(0, "pickrole", ROLE_ORDER[r]); return; }
         // stage handles, then the shape itself (hit areas in screen pixels)
         var RX = rangeX(), g = geom(), ly = (y - SY) / KY;
-        var top = g.cy - g.ry * (1 + P.edge * 0.3), edgeY = top - 5 - P.edge * 14;
-        if (Math.abs(x - sx(g.cx)) <= 5 && Math.abs(y - sy(edgeY)) <= 5) { drag = { kind: "edge" }; return; }
         if (Math.abs(y - sy(g.cy)) <= 5 && (Math.abs(x - sx(g.cx - g.rx)) <= 5 || Math.abs(x - sx(g.cx + g.rx)) <= 5)) { drag = { kind: "width" }; return; }
         if (x >= stageX() && x < stageX() + SW && y >= SY && y < SY + SH) { drag = { kind: "move" }; ondrag(x, y, 1); return; }
         if (x >= RX && x < RX + RW && y >= SY && y < SY + SH) {
@@ -440,13 +433,16 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
         // characters: the letter auditions it alone (Solo), the bar sets its strength
         for (var v = 0; v < 5; v++) {
             var vc = varCell(v);
-            if (inRect(x, y, [vc.x, 100, vc.w, 14])) { outlet(0, "solo", v); return; }
-            if (inRect(x, y, [vc.x, 114, vc.w, 11])) { drag = { kind: "bar", name: "var" + "abcde".charAt(v), x0: vc.x, w: vc.w, scale: 100, step: 5 }; ondrag(x, y, 1); return; }
+            if (inRect(x, y, [vc.x, VFY, vc.w, VFH])) {
+                var vn = "var" + "abcde".charAt(v);
+                drag = { kind: "var", name: vn, v: v, y0: y, v0: P[vn], moved: false };
+                return;
+            }
         }
     }
     // out
     var fr = fitRect();
-    if (inRect(x, y, fr)) { drag = { kind: "bar", name: "fit", x0: fr[0], w: fr[2], scale: 1, step: 0 }; ondrag(x, y, 1); return; }
+    if (inRect(x, y, fr)) { drag = { kind: "identity", x0: fr[0], w: fr[2] }; ondrag(x, y, 1); return; }
     var cl = cleanRect();
     if (inRect(x, y, cl)) { drag = { kind: "bar", name: "clean", x0: cl[0], w: cl[2], scale: 100, step: 1 }; ondrag(x, y, 1); return; }
     for (var o = 0; o < 2; o++) {
@@ -460,12 +456,24 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
 
 function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
     if (!drag) return;
-    if (!but) { drag = null; return; }
+    if (!but) {
+        if (drag && drag.kind === "var" && !drag.moved) outlet(0, "solo", drag.v);
+        drag = null;
+        return;
+    }
     var d = drag;
     if (d.kind === "knob") {
         var v = d.v0 + (d.y0 - y) * d.per * (shift ? 0.25 : 1);
         v = d.per < 0.5 ? Math.round(v * 10) / 10 : Math.round(v);
         setP(d.name, clamp(v, d.lo, d.hi));
+        return;
+    }
+    if (d.kind === "identity") { setP("fit", Math.round((1 - clamp((x - d.x0) / d.w, 0, 1)) * 100) / 100); return; }
+    if (d.kind === "var") {   // the A-E faders: vertical drag (shift: fine); a click without moving auditions it
+        if (Math.abs(y - d.y0) > 2) d.moved = true;
+        if (!d.moved) return;
+        var vv = d.v0 + (d.y0 - y) * (100 / 70) * (shift ? 0.25 : 1);
+        setP(d.name, clamp(Math.round(vv), 0, 100));
         return;
     }
     if (d.kind === "gain") {   // centre = 0 dB, -12 ... +12 dB, 0.5 dB steps (shift: 0.1 dB)
@@ -486,7 +494,6 @@ function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
         setP("depth", depth);
         setP("pan", clamp((lx - 134) / (half * 0.8), -1, 1));
     } else if (d.kind === "width") setP("width", clamp((Math.abs(lx - g.cx) / g.scale - 7) / 56, 0, 1));
-    else if (d.kind === "edge") setP("edge", clamp((g.cy - g.ry - 5 - ly) / 18, 0, 1));
     else if (d.kind === "hi") setP("hi", Math.max(clamp(yToHz(ly), 20, 20000), P.lo * 2));
     else if (d.kind === "lo") setP("lo", Math.min(clamp(yToHz(ly), 20, 20000), P.hi / 2));
 }
@@ -495,6 +502,8 @@ function ondblclick(x, y) {
     for (var k = 0; k < 8; k++) { var c = knobCell(k); if (inRect(x, y, [c.x, c.y, c.w, c.h]) && F.valid) { setP(KN[k], 0); return; } }
     for (var o = 0; o < 2; o++) if (outKnobHit(x, y, o)) { setP(outKnob(o).p, 100); return; }
     if (inRect(x, y, gainRect())) { setP("gain", 0); return; }
+    if (inRect(x, y, fitRect())) { setP("fit", 0.5); return; }
+    for (var vd = 0; vd < 5; vd++) { var vc2 = varCell(vd); if (inRect(x, y, [vc2.x, VFY, vc2.w, VFH])) { setP("var" + "abcde".charAt(vd), 0); return; } }
 }
 // ------------------------------------------------------------------------------------------------- messages
 function anything() {

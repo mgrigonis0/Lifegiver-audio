@@ -36,6 +36,10 @@ struct Profile {
     double dynThr[2] = {-6, -14};            // the Warm / Bite bands' usual share of the sound (dB, median)
     double mbThr[3] = {-20, -26, -32};       // the three bands' usual upper level (dBFS)
     bool has16c = false;
+    // 17b: what sticks out of the sound's own spectrum in the ear's harsh range (Clean tames it; 0 Hz = nothing)
+    double excHz = 0, excQ = 1, excDb = 0;   // centre, bell width, how far it stands above both neighbours (weighted)
+    double excThr = -14;                     // that band's usual share of the sound (dB, median), with the tamer's detector
+    bool has17b = false;
 
     Profile() { for (int i = 0; i < NQ; i++) { reading[i] = 0; readValid[i] = false; certainty[i] = 0; } }
 
@@ -245,6 +249,80 @@ inline void measureDynamics(const TakeSet& ts, double lowestHz, double f0min, do
     for (int b = 0; b < 3; b++) if (lv[b].size() > 20) mbThr[b] = percentile(lv[b], 0.6) - 3;
 }
 
+// Excess (17b): in the 1/6-octave long-term spectrum, a region that stands above BOTH its neighbours (the bands 5/6 to
+// 2 octaves away on each side, where the sound has energy; far enough out that a broad bump's own skirt doesn't hide
+// it), so a slope or a sound's natural edge is never "excess": an evenly bright sound has none. Tested on voice,
+// strings, piano, winds, real and even hats: none flagged (an earlier average-of-sides rule flagged the voice). Searched 2–8 kHz and weighted toward the ear's most
+// unpleasant region, 2.5–5.5 kHz (RESEARCH: Kumar 2008); bands on a known resonance are left to the resonance tamer.
+// Judged only against the sound's own shape, never against a typical sound (no sameness).
+constexpr double EXC_MIN_DB = 2.0;   // weighted excess below this: nothing to tame
+inline double excessWeight(double f) {
+    if (f <= 2000 || f >= 8000) return 0;
+    if (f < 2500) return std::log2(f / 2000) / std::log2(2500.0 / 2000);
+    if (f > 5500) return std::log2(8000 / f) / std::log2(8000.0 / 5500);
+    return 1;
+}
+inline void findExcess(const std::vector<double>& oct6, const double* resHz, double harmonic, double& hz, double& q, double& db) {
+    hz = 0; q = 1; db = 0;
+    const int N = Profile::OCT6_N;
+    if ((int)oct6.size() < N) return;
+    std::vector<double> L((size_t)N);
+    double pk = -300;
+    for (int i = 0; i < N; i++) { L[(size_t)i] = powToDb(oct6[(size_t)i] + 1e-30); pk = std::max(pk, L[(size_t)i]); }
+    auto side = [&](int a0, int a1, double& m) {
+        double s = 0; int c = 0;
+        for (int j = a0; j <= a1; j++) if (j >= 0 && j < N && L[(size_t)j] > pk - 40) { s += L[(size_t)j]; c++; }
+        if (c < 3) return false;
+        m = s / c;
+        return true;
+    };
+    std::vector<double> raw((size_t)N, -99);
+    double best = 0; int bi = -1;
+    for (int i = 0; i < N; i++) {
+        const double f = Profile::oct6Lo(i) * std::pow(2.0, 1.0 / 12);
+        if (f < 2000 || f > 8000 || L[(size_t)i] < pk - 40) continue;
+        bool onRes = false;
+        for (int k = 0; k < 4; k++) onRes = onRes || (resHz[k] > 0 && std::fabs(std::log2(f / resHz[k])) < 1.0 / 6);
+        double lo = 0, hi = 0;
+        const bool hl = side(i - 12, i - 5, lo), hh = side(i + 5, i + 12, hi);
+        if (!hl && !hh) continue;
+        // above BOTH sides (not their average): a slope or a sound's edge has one side at or above the centre, so it
+        // is never "excess"; only a real bump stands above both
+        // a noisy sound (hats, cymbals, breath) rises about 3 dB per octave by nature (white-like): its upper side is
+        // judged against that rise (~1.4 octaves away), or a bump on it could never stand above it
+        if (hh) hi -= 3.0 * 1.42 * clampd((0.4 - harmonic) / 0.3, 0, 1);
+        raw[(size_t)i] = L[(size_t)i] - (hl && hh ? std::max(lo, hi) : (hl ? lo : hi));
+        if (onRes) continue;
+        const double w = raw[(size_t)i] * excessWeight(f);
+        if (w > best) { best = w; bi = i; }
+    }
+    if (bi < 0 || best < EXC_MIN_DB) return;
+    // its width: the neighbouring bands still standing above half of it
+    int a = bi, b = bi;
+    while (a > 0 && raw[(size_t)(a - 1)] > 0.5 * raw[(size_t)bi]) a--;
+    while (b < N - 1 && raw[(size_t)(b + 1)] > 0.5 * raw[(size_t)bi]) b++;
+    const double oct = std::max(1, b - a + 1) / 6.0, r = std::pow(2.0, oct);
+    hz = Profile::oct6Lo(bi) * std::pow(2.0, 1.0 / 12);
+    q = clampd(std::sqrt(r) / (r - 1), 0.7, 4.0);
+    db = std::min(best, 12.0);
+}
+// the found band's usual share of the sound, with the tamer's own detector (as measureDynamics)
+inline double measureExcessShare(const TakeSet& ts, double hz, double q) {
+    std::vector<double> ex;
+    for (const Audio& a : ts.takes) {
+        DynBell d;
+        d.setup(hz, q, 0, q, 5, 120, a.sr, a.sr / 16);
+        double pk = 1e-9;
+        for (size_t i = 0; i < a.size(); i++) pk = std::max(pk, (double)std::fabs(a.l[i]) + std::fabs(a.r[i]));
+        const double gate = linToDb(pk / 2) - 50;
+        for (size_t i = 0; i < a.size(); i++) {
+            d.detect(0.5 * (a.l[i] + a.r[i]));
+            if (i % 16 == 15 && d.wb.db() > gate) ex.push_back(d.nb.db() - d.wb.db());
+        }
+    }
+    return ex.size() > 20 ? percentile(ex, 0.5) : -14;
+}
+
 inline Profile analyze(const TakeSet& ts) {
     Profile p;
     if (ts.takes.empty()) return p;
@@ -310,6 +388,9 @@ inline Profile analyze(const TakeSet& ts) {
     findResonances(acc, f0s, p.harmonic, p.resHz);
     measureDynamics(ts, p.lowestHz, p.f0min, p.dynThr, p.mbThr);
     p.has16c = true;
+    findExcess(p.oct6, p.resHz, p.harmonic, p.excHz, p.excQ, p.excDb);
+    if (p.excHz > 0) p.excThr = measureExcessShare(ts, p.excHz, p.excQ);
+    p.has17b = true;
     // how sure: spectral values from the seconds of sound, onset values from the number of onsets, more takes help
     const double specC = clampd(p.activeSec / 3.0, 0.2, 1.0) * (p.takes >= 2 ? 1.0 : 0.9);
     const double onC = p.onsets >= 8 ? 1.0 : (p.onsets >= 3 ? 0.66 : (p.onsets >= 1 ? 0.33 : 0.0));

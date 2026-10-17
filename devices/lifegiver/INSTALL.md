@@ -34,25 +34,29 @@ Drag `Lifegiver.amxd` from that folder onto an audio track that plays something.
 The Max window (open the device editor, then Cmd+M) shows two lines when everything loaded:
 
 ```
-lifegiver: engine 2026-10-17a ready, device ...
-lifegiver: patch 2026-10-17a
+lifegiver: engine 2026-10-17b ready, device ...
+lifegiver: patch 2026-10-17b
 ```
 
 and, a moment later, `lifegiver: new device, id ....` (or `state restored, id ....` in a saved set).
 A red `lifegiver~` box or no sound: copy the red lines from the Max window and send them.
 
-## This build (2026-10-17a): what to check
+## This build (2026-10-17b): what to check
 
-New since 16c: a new **room** (the ringing notes behind the drums are gone), the output now **always matches the
-input's loudness** (A–E at 100 % no longer jumps up), and a **Gain** bar under Compare.
+New since 17a: **Clean now tames harshness** it reads in the sound (what sticks out of the sound's own spectrum in
+the harsh range), **roles only place** the sound (they no longer add presence, punch or weight), the stage's **Edge
+diamond is gone**, the top bar in Out is now **Identity** (how strongly the sound's unasked qualities are held), and
+**A–E are big faders**.
 
-1. **Room:** put a drum loop at the back of the stage. You should hear a short, soft space behind it: no held notes,
-   no metallic ring. Drag it back and forth while it plays: no clicks.
-2. **A–E at 100 %:** turn one up while playing. The level should stay about where it was. Right after a big move it
-   can take up to a second to settle; that's normal.
-3. **Gain:** drag the bar under Compare (centre = 0 dB, −12 … +12 dB); double-click puts it back to 0.
-4. **A set saved with 16c:** reopen it. It plays the new room and is level-matched; knobs and A–E still work.
-5. **CPU:** Lifegiver on 4–6 tracks, and what Live's CPU meter says.
-6. Anything from the 16c list you didn't get to (Scale 300–400 %, Dyn | Avg switching, the Moves lines).
+1. **Harsh sound:** put Lifegiver on a harsh hi-hat or cymbal loop (or anything piercing), Listen, then move **Clean**
+   from 0 to 100 %. The piercing part should calm down; Moves shows "Taming harshness" with its frequency. On a sound
+   that isn't harsh (a voice, a pad, an evenly bright hat), Clean should change nothing in the highs.
+2. **Edge you ask for wins:** on the harsh sound, turn **Bite** up: the taming steps back (no fight).
+3. **Roles:** pick Lead, then Rhythm, then Bass at the same distance: the sound itself shouldn't change any more,
+   only its place (distance, width, range).
+4. **Identity:** turn a knob far (e.g. Air +8), then move Identity between 0 and 100 %: at 100 % the rest of the sound
+   stays closer to how it was.
+5. **A–E faders:** drag up/down on a letter (Shift = fine), double-click = 0, a plain click auditions it.
+6. **A set saved with 17a:** reopen it: it plays as before; Clean's taming starts after you Listen again.
 
 Send the Max window lines if anything looks wrong, and say what you hear.

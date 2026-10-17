@@ -236,6 +236,77 @@ static void testModules() {
             fails += expect(share < 0.5 && worst < 16, "the room's tail doesn't ring (no pitch builds up)");
         }
     }
+    // 17b: Clean's excess tamer. A piercing bright noise (a +9 dB bump at 4.3 kHz on high-passed noise, hat-like hits)
+    // is read as sticking out and tamed; an evenly bright one and a harmonic lead are left alone (no sameness)
+    {
+        auto hits = [&](bool bump, uint32_t seed) {
+            Stereo n = noiseSig(6.0, sr, seed);
+            Svf h1[2], h2[2], pk[2];
+            for (int c = 0; c < 2; c++) { h1[c].set(Svf::HP, 3000, 0.7071, 0, sr); h2[c].set(Svf::HP, 3000, 0.7071, 0, sr); pk[c].set(Svf::BELL, 4300, 1.4, 9, sr); }
+            const size_t step = (size_t)(0.125 * sr);
+            for (size_t i = 0; i < n.size(); i++) {
+                const double t = (double)(i % step) / sr, env = 0.5 * std::exp(-t / 0.012);
+                double l = h2[0].tick(h1[0].tick(n.l[i] * env)), r = h2[1].tick(h1[1].tick(n.r[i] * env));
+                if (bump) { l = pk[0].tick(l); r = pk[1].tick(r); }
+                n.l[i] = l; n.r[i] = r;
+            }
+            return n;
+        };
+        const Stereo pierce = hits(true, 31), even = hits(false, 31);
+        const Profile pp = analyze(*makeTakeSet({toAudio(pierce, sr)}));
+        const Profile pe = analyze(*makeTakeSet({toAudio(even, sr)}));
+        const Profile pl = analyze(*makeTakeSet({sig::lead(4)}));
+        std::printf("    sticks out: piercing noise %+.1f dB at %.0f Hz · even noise %s · a lead %s\n", pp.excDb, pp.excHz,
+                    pe.excHz > 0 ? "yes" : "nothing", pl.excHz > 0 ? "yes" : "nothing");
+        fails += expect(pp.excHz > 0 && std::fabs(std::log2(pp.excHz / 4300)) < 0.34 && pp.excDb >= 3,
+                        "the reading finds what sticks out of a piercing sound (within 1/3 octave)");
+        fails += expect(pe.excHz == 0 && pl.excHz == 0, "an evenly bright sound and a harmonic lead: nothing sticks out (left alone)");
+        // Clean tames it: the bump's band comes down; Clean 0 leaves it exactly
+        Inputs in;
+        in.clean = 1;
+        const Mix mx = mixOf(in, -1);
+        Plan on = basePlan(in, pp, mx);
+        on[P_LOWCUT_ON] = 0; on[P_RES_DEPTH] = 0; on[P_AMB_MIX] = 0; on[P_WIDTH] = 1; on[P_STAGE_DB] = 0;
+        Plan off = on; off[P_EXC_DEPTH] = 0;
+        const Stereo a1 = renderChain(on, pierce, sr), a0 = renderChain(off, pierce, sr);
+        const double cut = toneDb(a1.l, 4300, sr, 9600) - toneDb(a0.l, 4300, sr, 9600);
+        const double side = toneDb(a1.l, 12000, sr, 9600) - toneDb(a0.l, 12000, sr, 9600);
+        bool exact = true;
+        for (size_t i = 0; i < pierce.size(); i++) exact = exact && bitEqual(a0.l[i], pierce.l[i]);
+        std::printf("    Clean 100 %%: the bump %+.1f dB, 12 kHz %+.1f dB\n", cut, side);
+        fails += expect(cut < -3 && std::fabs(side) < 0.5 && exact, "Clean tames the excess (bump down, the rest untouched; depth 0 = exactly the input)");
+        // an ask for presence wins: Bite up (knob or a character) takes the taming back
+        in.knob[Q_BITE] = 4;
+        fails += expect(basePlan(in, pp, mx)[P_EXC_DEPTH] == 0.0, "asking for Bite (+4) switches the taming off: it never fights an ask");
+        in.knob[Q_BITE] = 0;
+        in.clean = 0.4;
+        fails += expect(std::fabs(basePlan(in, pp, mx)[P_EXC_DEPTH] - 0.4) < 1e-9, "the taming follows Clean (40 % = 40 % depth)");
+    }
+    // 17b: Identity strength holds what nobody asked to change; roles only place the sound
+    {
+        auto ts = makeTakeSet({sig::lead(3)});
+        const Profile pr = analyze(*ts);
+        auto sideEffect = [&](double fit) {
+            Inputs in;
+            in.fit = fit;
+            in.knob[Q_AIR] = 8;
+            const Solution s = solve(*ts, pr, in, -1);
+            double d = 0;
+            for (int q = 0; q < NQ; q++) if (q != Q_AIR && s.units.ok[q]) d += std::fabs(s.reached[q]);
+            return d;
+        };
+        const double strong = sideEffect(0.0), weak = sideEffect(1.0);
+        std::printf("    Air +8 on a lead: the other qualities moved %.2f steps in all at Identity 100 %%, %.2f at 0 %%\n", strong, weak);
+        fails += expect(strong <= weak + 1e-6, "Identity strength: more of it, less change to what wasn't asked");
+        Inputs a, b;
+        a.role = ROLE_RHYTHM; b.role = ROLE_LEAD;
+        a.depth = b.depth = 0.6;
+        double pa[NQ], pb[NQ];
+        stagePush(a, pa); stagePush(b, pb);
+        bool same = true;
+        for (int q = 0; q < NQ; q++) same = same && pa[q] == pb[q];
+        fails += expect(same && std::fabs(pa[Q_PUNCH] - 0.3) < 1e-9, "roles only place: at the same distance every role asks the same (distance cues only)");
+    }
     // Scale
     {
         Plan busy = busyPlan();
@@ -369,5 +440,23 @@ static void testModules() {
         b.msg("air", {-8});
         b.idle(0.1);
         fails += expect(b.ctl->playing()[P_AIR_DB] < air - 0.5, "and its knobs still act (saved sensitivities)");
+        // a 16c/17a set (reading without the 17b excess, plans without the tamer's values)
+        StateDoc d2;
+        TestHost::doc(a.host.pattr, d2);
+        d2.num["prof"].resize(23);
+        d2.num["play"].resize(NP_16C);
+        d2.num["solplan"].resize(NP_16C);
+        d2.str["saved_by"] = "2026-10-17a";
+        Rig c;
+        c.host.pattr = atomsOf(encodeState(d2));
+        c.init();
+        c.idle(1.0);
+        bool same2 = c.ctl->profile().valid && !c.ctl->profile().has17b;
+        for (int i = 0; i < NP; i++) same2 = same2 && bitEqual(c.ctl->playing()[i], i < NP_16C ? a.ctl->playing()[i] : neutral[i]);
+        fails += expect(same2, "a 17a set opens: its reading back, exactly its plan plays (the excess tamer off)");
+        c.msg("air", {-8});
+        c.idle(0.1);
+        fails += expect(c.ctl->playing()[P_AIR_DB] < air - 0.5 && c.ctl->playing()[P_EXC_DEPTH] == 0.0,
+                        "and its knobs still act; Clean's taming waits for a new Listen (no excess known)");
     }
 }

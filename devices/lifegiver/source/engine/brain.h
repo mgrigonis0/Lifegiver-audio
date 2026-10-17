@@ -59,32 +59,23 @@ inline RolePreset rolePresetFor(int role, const Profile& p) {
     if (ownsLows && p.valid) r.lo = std::max(20.0, std::min(r.lo, p.lowestHz * 0.8));
     return r;
 }
-// Edge (intensity) starts near smooth for every role: saturation is never a default move (DESIGN §16).
-// what each role asks of the qualities, in steps (the mockup's first draft)
-static const double ROLE_PUSH[NROLES][NQ] = {
-    // Weight Warm Bite Air Texture Punch Tail Steady
-    {0, 0, 1, 1, 0, 0, 0, 0},       // Lead: clarity, presence
-    {0, 0, 2, 0, 0, 1, 0, 0},       // Hook: forward, distinct
-    {0, 0, -1, -1, 0, 0, 0, 0},     // Support: gives way
-    {0, 0, 0, 0, 0, 2, 0, 0},       // Rhythm: attacks
-    {2, 0, 0, 0, 0, 0, 0, 2},       // Bass: lows, steady
-    {0, 1, 0, 0, 0, -1, 0, 2},      // Bed: steady, softer attacks
-    {0, 0, 0, 1, 1, 0, 0, 0},       // FX: air, colour
-};
+// 17b: roles only place the sound (the preset above: distance, width, range); they no longer ask for presence, punch
+// or weight by themselves (the user: taming through the reading, shaping only when asked). The stage's Edge handle is
+// gone (it duplicated the Texture and Steady knobs); its Live parameter stays, unused, so old sets open.
 
-// the stage's push per quality, in steps (shown as the arc on each knob)
+// the stage's push per quality, in steps (shown as the arc on each knob): only the cues that come with distance
 inline void stagePush(const Inputs& in, double* push) {
-    const double roleScale = 0.4 + 0.6 * clampd(in.fit, 0, 1);   // Identity end: the role pulls less
-    const int r = (in.role >= 0 && in.role < NROLES) ? in.role : 0;
-    for (int q = 0; q < NQ; q++) push[q] = ROLE_PUSH[r][q] * roleScale;
+    for (int q = 0; q < NQ; q++) push[q] = 0;
     const double f = (clampd(in.depth, 0, 1) - 0.5) * 2;   // −1 back … +1 front
-    // further back: less presence, air and attack; nearer: shorter tails (further back, the ambience brings the tail)
+    // further back: less presence, air and attack, smaller level jumps; nearer: shorter tails (further back, the
+    // ambience brings the tail). 16c also steadied the front (|f|): unintended, removed.
     push[Q_BITE] += 1.5 * f; push[Q_AIR] += 1.5 * f; push[Q_PUNCH] += 1.5 * f; push[Q_TAIL] -= 1.5 * std::max(f, 0.0);
-    push[Q_STEADY] += std::fabs(f);
-    const double e = clampd(in.edge, 0, 1);
-    push[Q_TEXTURE] += 3 * e; push[Q_STEADY] += 1.5 * e;
+    push[Q_STEADY] += std::max(-f, 0.0);
     for (int q = 0; q < NQ; q++) push[q] = clampd(push[q], -4, 4);
 }
+// Identity strength (the Live parameter "Identity Fit", fit 0 = full Identity): how much the qualities nobody asked
+// to change are held where the sound has them
+inline double identityStrength(const Inputs& in) { return 1 - clampd(in.fit, 0, 1); }
 inline double stageLevelDb(const Inputs& in) { return -(1 - clampd(in.depth, 0, 1)) * 3.0; }
 // the ambience for a distance: none in the front half, up to 0.4 at the very back, a bigger room further back
 inline double ambMixFor(double depth) { return 0.4 * clampd((0.55 - depth) / 0.55, 0, 1); }
@@ -268,6 +259,17 @@ inline Plan basePlan(const Inputs& in, const Profile& p, const Mix& m) {
         anyRes = anyRes || in_;
     }
     pl[P_RES_DEPTH] = anyRes ? clampd(in.clean, 0, 1) : 0;
+    // 17b: Clean tames what sticks out of the sound's own spectrum (the reading's excess), as far as Clean is turned.
+    // It steps back for presence the user asks for (Bite up, from the knob or a character): taming never fights an ask.
+    if (p.has17b && p.excHz > 20 && p.excDb >= EXC_MIN_DB) {
+        double biteUp = std::max(0.0, in.knob[Q_BITE]);
+        for (int v = 0; v < NVAR; v++) biteUp += m.w[v] * std::max(0.0, VAR_PUSH[v][Q_BITE]);
+        const double keep = 1 - clampd(biteUp / 4, 0, 1);
+        pl[P_EXC_DEPTH] = clampd(in.clean, 0, 1) * keep;
+        pl[P_EXC_HZ] = p.excHz;
+        pl[P_EXC_Q] = p.excQ;
+        pl[P_EXC_THR] = p.excThr - (p.excDb - 1.5);   // at the usual level: the excess beyond 1.5 dB is cut
+    }
     pl[P_AMB_MIX] = ambMixFor(in.depth);
     pl[P_AMB_SIZE] = ambSizeFor(in.depth);
     return pl;
@@ -292,7 +294,10 @@ inline void applyTools(Plan& pl, const double* t) {
     pl[P_MB_MID] = t[T_MBMID];
     pl[P_MB_HI] = t[T_MBHI];
 }
-inline void copyAverages(const Plan& from, Plan& to) { for (int i = 0; i < NAVG; i++) to[P_AVG_DWARM + i] = from[P_AVG_DWARM + i]; }
+inline void copyAverages(const Plan& from, Plan& to) {
+    for (int i = 0; i < NAVG; i++) to[P_AVG_DWARM + i] = from[P_AVG_DWARM + i];
+    to[P_AVG_EXC] = from[P_AVG_EXC];
+}
 
 // The Average mode's values: every dynamic module at amount 1 on the takes, its unit gain averaged over the sound.
 inline void measureAverages(const TakeSet& ts, Plan& pl) {
@@ -300,7 +305,8 @@ inline void measureAverages(const TakeSet& ts, Plan& pl) {
     u[P_MAKEUP_DB] = 0; u[P_STAGE_DB] = 0;
     u[P_DWARM_AMT] = 1; u[P_DBITE_AMT] = 1; u[P_SMOOTH_AMT] = 1; u[P_MB_LO] = 1; u[P_MB_MID] = 1; u[P_MB_HI] = 1;
     u[P_RES_DEPTH] = 1;
-    double sum[NAVG] = {0};
+    u[P_EXC_DEPTH] = pl[P_EXC_HZ] > 20 && pl[P_EXC_DEPTH] > 0 ? 1 : 0;
+    double sum[NAVG] = {0}, excSum = 0;
     int n = 0;
     for (size_t k = 0; k < ts.takes.size(); k++) {
         const Audio& a = ts.takes[k];
@@ -311,9 +317,11 @@ inline void measureAverages(const TakeSet& ts, Plan& pl) {
         ch.process(L.data(), R.data(), L.data(), R.data(), (long)a.size());
         const ChainStats st = ch.stats();
         for (int i = 0; i < NAVG; i++) sum[i] += st.avg[i];
+        excSum += st.exc;
         n++;
     }
     for (int i = 0; i < NAVG; i++) pl[P_AVG_DWARM + i] = n ? sum[i] / n : 0;
+    pl[P_AVG_EXC] = n ? excSum / n : 0;
 }
 
 // render every take through a plan and measure (the closed loop)
@@ -440,7 +448,7 @@ inline Problem makeProblem(const Inputs& in, const Profile& p, const Mix& m, int
     pb.inLoud = inLoud;
     floorsOf(m, p, pb.floor);
     for (int k = 0; k < NT; k++) pb.on[k] = false;
-    const double keepW = 0.15 + 0.35 * (1 - clampd(in.fit, 0, 1));   // Identity end: protect what isn't asked
+    const double keepW = 0.1 + 0.5 * identityStrength(in);   // Identity: protect what isn't asked
     for (int q = 0; q < NQ; q++) {
         const double steps = clampd(push[q] + in.knob[q], -10, 10);
         const bool can = u.ok[q] && (steps >= 0 ? u.up[q] : u.dn[q]) > 0.05;
@@ -454,6 +462,17 @@ inline Problem makeProblem(const Inputs& in, const Profile& p, const Mix& m, int
         // tools must not be bent to fake it
         if (asked && !tool) asked = false, pb.unreachable[q] = true;
         pb.w[q] = !zok[q] || !u.ok[q] || pb.unreachable[q] ? 0 : (asked ? 1.0 : keepW);
+    }
+    // Identity (17b): with some strength, the qualities nobody asked to change get their own two-way tools (the EQ bands)
+    // enabled as holders, so a move's side effect on them can be held back where the sound has them (an Air lift that
+    // also lifts Bite gets a small Bite counter-move). Off at 0 %: then side effects just show.
+    if (identityStrength(in) >= 0.25) {
+        bool anyAsked = false;
+        for (int k = 0; k < NT; k++) anyAsked = anyAsked || pb.on[k];
+        for (int q = 0; anyAsked && q < NQ; q++) {
+            if (pb.w[q] <= 0 || pb.w[q] >= 1.0) continue;
+            for (int k = 0; k < NT; k++) if (TOOL_FOR[q][k] == 1 && pb.cost[k] < 20) pb.on[k] = true;
+        }
     }
     // a quality nobody asked for, with none of its tools in play: its change is a side effect to show, not a cost
     for (int q = 0; q < NQ; q++) {
@@ -748,7 +767,9 @@ enum MoveKind {
     MV_TILT_UP, MV_TILT_DOWN, MV_SAT_EVEN, MV_SAT_ODD, MV_COMP, MV_EXP, MV_ATTACK_UP, MV_ATTACK_DOWN, MV_SUSTAIN_UP,
     MV_SUSTAIN_DOWN, MV_LOWCUT, MV_HIGHCUT, MV_WIDER, MV_NARROWER, MV_PAN, MV_MAKEUP, MV_STAGE_LEVEL,
     // 16c
-    MV_SAT2_EVEN, MV_SAT2_ODD, MV_DWARM, MV_DBITE, MV_TAMER, MV_SMOOTH, MV_MB_LO, MV_MB_MID, MV_MB_HI, MV_AMBIENCE
+    MV_SAT2_EVEN, MV_SAT2_ODD, MV_DWARM, MV_DBITE, MV_TAMER, MV_SMOOTH, MV_MB_LO, MV_MB_MID, MV_MB_HI, MV_AMBIENCE,
+    // 17b
+    MV_EXCESS
 };
 struct Move { int kind; double value; int q; double reached, asked; };
 
@@ -789,6 +810,7 @@ inline std::vector<Move> movesOf(const Solution& s, double scale = 1.0) {
         for (int k = 0; k < 4; k++) if (pl[P_RES_HZ1 + k] > 20) n++;
         if (n) add(MV_TAMER, n, -1);
     }
+    if (pl[P_EXC_DEPTH] > 0.02 && pl[P_EXC_HZ] > 20) add(MV_EXCESS, pl[P_EXC_HZ], -1);
     if (pl[P_AMB_MIX] > 0.005) add(MV_AMBIENCE, pl[P_AMB_MIX], -1);
     if (pl[P_LOWCUT_ON] > 0) add(MV_LOWCUT, pl[P_LOWCUT_HZ], -1);
     if (pl[P_HIGHCUT_ON] > 0) add(MV_HIGHCUT, pl[P_HIGHCUT_HZ], -1);

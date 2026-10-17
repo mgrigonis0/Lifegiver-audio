@@ -126,7 +126,7 @@ PARAMS = [
     ("pan", "Stage Pan", "Pan", 0, -1, 1, 0, 1, 1.0, None),
     ("depth", "Distance", "Distance", 0, 0, 1, 0.82, 1, 1.0, None),
     ("width", "Width", "Width", 0, 0, 1, 0.35, 1, 1.0, None),
-    ("edge", "Edge", "Edge", 0, 0, 1, 0, 1, 1.0, None),
+    ("edge", "Edge", "Edge", 0, 0, 1, 0, 1, 1.0, None),   # 17b: unused (Edge removed); kept so old sets open
     ("lo", "Range Lo", "Range Lo", 0, 20, 20000, 60, 3, 3.0, None),
     ("hi", "Range Hi", "Range Hi", 0, 20, 20000, 20000, 3, 3.0, None),
     ("fit", "Identity Fit", "Id-Fit", 0, 0, 1, 0.5, 1, 1.0, None),
@@ -147,7 +147,7 @@ NAMES = [p[0] for p in PARAMS]
 
 INFO = {
     "view": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). "
-            "Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; top handle: edge; "
+            "Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; "
             "the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it "
             "does; A–E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched; Scale "
             "multiplies the processing (0 = none, 100 % = as planned, up to 400 %); Dyn/Avg: the dynamic tools follow "

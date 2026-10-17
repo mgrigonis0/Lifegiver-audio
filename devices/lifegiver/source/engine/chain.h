@@ -1,6 +1,7 @@
 // Lifegiver: the processing chain (DESIGN §11, fixed order) and the plan that sets it.
 //
 //   low cut → EQ (Weight shelf, Warm bell, Bite bell, Air shelf) → tilt → resonance tamer (4 dynamic notches)
+//   → excess tamer (17b, Clean: a dynamic bell on what sticks out of the sound's own spectrum in the harsh range)
 //   → dynamic EQ (Warm, Bite: cut when the band builds up) → saturation (pre) → compressor/expander → multiband
 //   → transient shaper → high smoothing → saturation (post) → high cut → ambience → stereo stage (width: lows never
 //   widened; true pan: lows stay put) → level match + stage level → (Scale > 100 %) safety ceiling
@@ -51,10 +52,13 @@ enum PlanIdx {
     P_RES_DEPTH, P_RES_HZ1, P_RES_HZ2, P_RES_HZ3, P_RES_HZ4,
     P_AMB_MIX, P_AMB_SIZE,
     P_AVG_DWARM, P_AVG_DBITE, P_AVG_SMOOTH, P_AVG_MB1, P_AVG_MB2, P_AVG_MB3, P_AVG_RES1, P_AVG_RES2, P_AVG_RES3, P_AVG_RES4,
+    // 17b: the excess tamer (Clean). Depth 0 = off (older plans read these as their neutral values)
+    P_EXC_DEPTH, P_EXC_HZ, P_EXC_Q, P_EXC_THR, P_AVG_EXC,
     NP
 };
 constexpr int NP_16B = P_STAGE_DB + 1;   // plans saved by 16a/16b
-constexpr int NAVG = 10;                 // P_AVG_DWARM … P_AVG_RES4
+constexpr int NAVG = 10;                 // P_AVG_DWARM … P_AVG_RES4 (P_AVG_EXC, 17b, sits apart: appended)
+constexpr int NP_16C = P_AVG_RES4 + 1;   // plans saved by 16c/17a
 
 struct Plan {
     double v[NP];
@@ -68,6 +72,7 @@ struct Plan {
         v[P_DWARM_THR] = -6; v[P_DBITE_THR] = -14;
         v[P_MB_F1] = 200; v[P_MB_F2] = 2500; v[P_MB_THR1] = -20; v[P_MB_THR2] = -26; v[P_MB_THR3] = -32; v[P_MB_PERIOD] = 25;
         v[P_AMB_SIZE] = 0.7;
+        v[P_EXC_HZ] = 4000; v[P_EXC_Q] = 1; v[P_EXC_THR] = -14;
     }
     double& operator[](int i) { return v[i]; }
     double operator[](int i) const { return v[i]; }
@@ -87,7 +92,7 @@ static const ScaleRange SCALED[] = {
 };
 
 // what the chain measured about its dynamic modules (their unit gains, averaged over the sound)
-struct ChainStats { double avg[NAVG]; };
+struct ChainStats { double avg[NAVG]; double exc = 0; };
 
 // The live level match (16d): the make-up that makes the output as loud as the input, measured as the sound plays.
 // Both sides K-weighted (BS.1770), stereo powers summed, 100 ms blocks; a block counts only while the input sounds
@@ -183,6 +188,7 @@ public:
         tsFast.reset(); tsSlow.reset(); detEnv.reset(); tsGain = 0;
         for (auto& b : res) { b.reset(); b.stat.clear(); }
         for (auto& b : dyn) { b.reset(); b.stat.clear(); }
+        exc.reset(); exc.stat.clear();
         smooth.reset(); smooth.stat.clear(); smooth.setup(sr, cr);
         mb.reset(); for (auto& s : mb.stat) s.clear();
         amb.reset(); amb.setup(sr); ambRun = false; ambIdle = 0;
@@ -211,6 +217,7 @@ public:
         s.avg[0] = dyn[0].stat.mean(); s.avg[1] = dyn[1].stat.mean(); s.avg[2] = smooth.stat.mean();
         for (int b = 0; b < 3; b++) s.avg[3 + b] = mb.stat[b].mean();
         for (int k = 0; k < 4; k++) s.avg[6 + k] = res[k].stat.mean();
+        s.exc = exc.stat.mean();
         return s;
     }
 
@@ -237,6 +244,11 @@ public:
             if (resActive) {
                 if (detecting) { const double m = 0.5 * (L + R); for (int k = 0; k < 4; k++) if (resUsed[k]) res[k].detect(m); }
                 for (int k = 0; k < 4; k++) res[k].process(L, R);
+            }
+            // excess tamer (Clean)
+            if (excActive) {
+                if (detecting) exc.detect(0.5 * (L + R));
+                exc.process(L, R);
             }
             // dynamic EQ (Warm, Bite)
             if (dynActive) {
@@ -383,7 +395,7 @@ private:
     Smoother stageMix;            // 0 = the stereo stage is bypassed (exactly the input)
     Svf tsHp, tsLp;
     Env tsFast, tsSlow, detEnv;
-    DynBell res[4], dyn[2];
+    DynBell res[4], dyn[2], exc;
     HiSmooth smooth;
     Multiband mb;
     Ambience amb;
@@ -399,6 +411,7 @@ private:
     double panP = 0, panC = 1, panS = 0;
     bool eqActive = false, eqOn[4] = {false, false, false, false}, tiltOn = false, dynOn = false, tsOn = false;
     bool resActive = false, resUsed[4] = {false, false, false, false}, dynActive = false, dynUsed[2] = {false, false};
+    bool excActive = false;
     bool smoothActive = false, mbOn = false, detecting = true;
     double mbShelf = 0;            // 1 = the multiband runs as held shelves (Average, settled)
     bool coefsReady = false;
@@ -453,6 +466,18 @@ private:
             if (detecting) res[k].control(-9.0 + 1.5, 4.0, 8.0, true);
             res[k].apply(clampd(target(depth, res[k].unit, cur[P_AVG_RES1 + k]), -12, 0));
             resActive = resActive || res[k].on || depth > 0;
+        }
+        // excess tamer: cuts what the band stands above its own normal share. At its usual level that is the static part
+        // of the excess (excDb − 1.5 dB, so a barely-there excess is left alone), more when the band builds above
+        // usual (1:1, up to 12 dB): the harsh hits get calmed most.
+        {
+            const double ed = clampd(cur[P_EXC_DEPTH], 0, 1);
+            const bool used = ed > 0 && cur[P_EXC_HZ] > 20;
+            if (used || exc.on) {
+                if (detecting && used) exc.control(cur[P_EXC_THR], 12.0, 12.0, true);
+                exc.apply(used ? clampd(target(ed, exc.unit, cur[P_AVG_EXC]), -12, 0) : 0.0);
+            }
+            excActive = exc.on || used;
         }
         // dynamic EQ
         dynActive = false;
@@ -556,6 +581,7 @@ private:
         // the dynamic modules' frequencies and speeds
         const double cr = sr / CTRL_BLOCK;
         for (int k = 0; k < 4; k++) if (cur[P_RES_HZ1 + k] > 20) res[k].setup(cur[P_RES_HZ1 + k], 8.0, 1.0, 6.0, 3, 120, sr, cr);
+        if (cur[P_EXC_HZ] > 20) exc.setup(cur[P_EXC_HZ], cur[P_EXC_Q], 0, cur[P_EXC_Q], 5, 120, sr, cr);
         dyn[0].setup(cur[P_WARM_HZ], 1.0, 0, 0.8, 15, 200, sr, cr);
         dyn[1].setup(cur[P_BITE_HZ], 1.0, 0, 0.9, 3, 80, sr, cr);
         if (mbOn) setupMb();

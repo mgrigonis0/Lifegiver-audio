@@ -212,6 +212,8 @@ inline Plan busyPlan() {
     p[P_AMB_MIX] = 0.2; p[P_AMB_SIZE] = 0.9;
     p[P_AVG_DWARM] = -2; p[P_AVG_DBITE] = -3; p[P_AVG_SMOOTH] = -1; p[P_AVG_MB1] = -3; p[P_AVG_MB2] = -3; p[P_AVG_MB3] = -3;
     p[P_AVG_RES1] = -4; p[P_AVG_RES2] = -4; p[P_AVG_RES3] = -4; p[P_AVG_RES4] = -4;
+    // 17b: Clean's excess tamer
+    p[P_EXC_DEPTH] = 0.8; p[P_EXC_HZ] = 4300; p[P_EXC_Q] = 1.7; p[P_EXC_THR] = -18; p[P_AVG_EXC] = -3;
     return p;
 }
 
