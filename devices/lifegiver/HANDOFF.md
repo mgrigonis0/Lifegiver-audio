@@ -82,6 +82,11 @@ instrument labels/families; mix awareness (a separate device); following the son
    a large room at the back feel right (mix cap 0.5); any knob greying or sound jumps left.
 2. **Before building anything else: review the whole build** for logic errors, redundancies and design flaws (the
    user asked; engine, view, generator, tests). Report findings with a recommendation each, one decision at a time.
+   Already found (user agreed it's needed): **the front distance cue fights Clean**: `stagePush` lifts Bite +1.5·f in
+   front, and Clean's excess cut sits in the same zone (trumpet as Lead: zone change +0.0 dB, Bite reach 0.2). Fix:
+   in front the cue lifts Air only (no Bite); further back Bite still drops. Clean does NOT step back for the stage
+   (that would just weaken Clean on every Lead). Check `module_tests` "roles only place" (expects Punch 0.3 at 0.6).
+   Rejected: a "new sound? re-listen" hint (the user: nothing reads unless asked; redundant).
 3. **Then build 18a: Balance** (user approved the idea). A slider, 0 = as read, pivots the sound's low↔high balance
    around ~1 kHz, relative to the sound (no sameness). It adds matched pushes to the tone knobs (Weight/Warm one way,
    Bite/Air the other), shown as their teal arcs: the solver reaches it with its tools, Identity doesn't fight it,
