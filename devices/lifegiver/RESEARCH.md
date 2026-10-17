@@ -144,6 +144,68 @@ loudness-matched: an unmatched louder result is preferred for the wrong reason.
 - The current room's single feedback comb breaks every reverb quality rule above: it must become a small dense
   network with a short, darker-in-the-highs decay.
 
+## Backing for the adaptive brain (17b) and the character colours (17c) (added 2026-10-17)
+What the literature supports, and what stays craft, for each planned change.
+
+**Where the EQ acts**
+- Perceived brightness follows the **absolute** spectral centroid (r ≈ 0.5), not the centroid relative to the
+  fundamental (r ≈ 0.03). [45] Clarity, by contrast, follows the centroid relative to the sound's own F0. [39]
+- Producers' "warm" = a low-mid lift with the top rolled off; "thin/clean" = a lift around 5 kHz. [3]
+- Engineers' rules: cuts narrower (higher Q) than boosts; experts don't cut much more than they boost; don't
+  high-pass every track by default, decide by the source. [46]
+
+**For Lifegiver:** Bite and Air stay at absolute frequencies: brightness is absolute, so moving them down for a bass
+would make a different quality, not more of this one; on a sound with nothing there, the brain reports it unreached
+(right). Body (Weight already follows the lowest note; Warm can follow the body region within the low mids) is where
+placement should adapt. Cuts get narrower bells than boosts (today both share one Q).
+
+**Crossovers and single vs multiband**
+- Multiband compression is rare in mixing practice; compression amount relates most to the instrument type; low
+  frequency content is compressed more. [46]
+- A band edge that falls on a strong spectral peak splits it between two compressors, which then under-react (a
+  bump of ~3 dB, up to 6); edges are best placed between peaks, with hysteresis. [47]
+
+**For Lifegiver:** the single compressor stays the default (its lower cost already says so); the 3-band one is a
+specialist tool. Both crossovers placed from the reading, between the sound's strong peaks and away from its notes'
+main energy.
+
+**Compressor timing**
+- Engineers have **no consensus** on attack and release; tempo-locked release was proposed and **not validated**. [46]
+- What is validated: program-dependent time constants. An automatic multitrack compressor set attack/release from
+  each track's crest factor (more transient → faster), ratio from percussivity and low-frequency content, make-up
+  from EBU loudness; listeners preferred it overall over the engineers' mixes in a 16-person test. [48] Another
+  automatic method set them from spectral flux; only the light setting beat no compression. [49] Classic program-
+  dependent release: short after a transient, longer once compression continues (two release stages). [10]
+- On drums, attack mattered more than release for how fitting the result sounded; slow attack (30 ms vs 0.1 ms) was
+  preferred for jazz and rock (26 listeners, one compressor, drums only). [50]
+
+**For Lifegiver:** drop "release from the note spacing" (unvalidated). Use program-dependent timing from the reading
+(crest factor / transientness, plus the existing low-note safety) and a two-stage release; attack chosen with
+Punch in mind (slower lets hits through), tested on the stems. Light by default (matches [29][31][49]).
+
+**Character colours**
+- Transformer "warmth, fullness, smoothness" lacks empirical support: a transformer stage's changes were mostly
+  inaudible (11 listeners), detectable only on some material. [51]
+- Tape physically: playback losses grow with frequency (highs soften, more at slow speeds), a low "head bump"
+  resonance, saturation through hysteresis with bias; the "warm" impression is the model authors' description, not
+  a listening result. [52]
+- Soft clipping was rated cleanest among distortion types; low orders are liked (see Distortion above). [53][6]
+- Band-split saturation lowers intermodulation. [8]
+
+**For Lifegiver:** build the colours on the solid parts: per-band drive (cleaner, backed), tape-like softening of the
+highs as drive rises (physics), soft curves. No "transformer" or "tube" claims; whether A–E then sound distinct and
+organic is for the ears.
+
+**Distance**
+- Perceived distance followed the balance of early vs late energy with a boundary near 50–100 ms more than the
+  classic direct-to-reverberant ratio; level is a strong cue (±6 dB ≈ double/half the distance). [54]
+- Practitioners: pre-delay above ~30–40 ms helps; keep lows out of reverb; per-track reverb returns around −9 LU
+  were preferred in a practitioner study. [46]
+
+**For Lifegiver:** further back = more of the room's energy after ~50 ms (not just a louder room). The room is
+already high-passed (180 Hz). At −13 to −20 LU it is on the quiet side of practice: right for "placement, not
+effect", revisit by ear.
+
 ## Sources
 1. McAdams et al. 1995, Perceptual scaling of synthesized musical timbres — https://three-mode.leidenuniv.nl/pdf/m/mcadams_etal1995pr.pdf
 2. Zacharakis, Pastiadis, Reiss 2014, An interlanguage study of musical timbre semantic dimensions — https://sonicfield.org/library/an-interlanguage-study-of-musical-timbre-semantic-dimensions-and-their-acoustic-
@@ -189,3 +251,13 @@ loudness-matched: an unmatched louder result is preferred for the wrong reason.
 42. J. O. Smith, Desired qualities of late reverberation (PASP) — https://ccrma.stanford.edu/~jos/pasp/Desired_Qualities_Late_Reverberation.html
 43. Dal Santo et al. 2024, Differentiable feedback delay network for colorless reverberation — https://arxiv.org/html/2402.11216v2
 44. Heldmann & Schlecht 2021, The role of modal excitation in colorless reverberation (DAFx) — https://dafx.de/paper-archive/details/0K-_d1jqrD9QKWZOpfwqPA
+45. Schubert & Wolfe 2006, Does timbral brightness scale with frequency and spectral centroid? (Acta Acustica) — https://www.phys.unsw.edu.au/jw/reprints/SchubertWolfe06.pdf
+46. Pestana & Reiss 2014, Intelligent audio production strategies informed by best practices (AES) — https://qmro.qmul.ac.uk/xmlui/bitstream/handle/123456789/11599/Reiss%20Intelligent%20Audio%20Production%20Strategies%202014%20Published.pdf
+47. Frequency-domain multiband compressor with automatically adjusting band boundaries (US 8903109) — https://patents.google.com/patent/US8903109
+48. Ma, De Man, Pestana, Black, Reiss 2015, Intelligent multitrack dynamic range compression (JAES) — https://www.academia.edu/31085394/Intelligent_Multitrack_Dynamic_Range_Compression
+49. Maddams, Finn, Reiss 2012, An autonomous method for multi-track dynamic range compression (DAFx) — https://www.dafx.de/paper-archive/2012/papers/dafx12_submission_6.pdf
+50. Moffat & Sandler 2018, The impact of compressor ballistics on the perceived style of music (AES 145) — https://djmoffat.github.io/files/AES_145_Papers_paper_134.pdf
+51. A perceptual evaluation of audio transformer colouration (Huddersfield) — https://pure.hud.ac.uk/en/publications/a-perceptual-evaluation-of-audio-transformer-colouration/
+52. Chowdhury 2019, Real-time physical modelling for analog tape machines (DAFx) — https://dafx.de/paper-archive/2019/DAFx2019_paper_3.pdf
+53. Psychoacoustics of soft clipping (White Rose; summarises Tan, Moore, Zacharov) — https://eprints.whiterose.ac.uk/208893/1/Psychoacoustics%20of%20Soft%20Clipping.pdf
+54. Albrecht & Lokki 2013, Adjusting the perceived distance of virtual speech sources by modifying binaural room impulse responses (Aalto) — https://mediatech.aalto.fi/publications/acoustics/ar/AlbrechtLokki2013Distance.pdf
