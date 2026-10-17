@@ -3,7 +3,7 @@
 //   low cut → EQ (Weight shelf, Warm bell, Bite bell, Air shelf) → tilt → resonance tamer (4 dynamic notches)
 //   → excess tamer (17b, Clean: a dynamic bell on what sticks out of the sound's own spectrum in the harsh range)
 //   → dynamic EQ (Warm, Bite: cut when the band builds up) → saturation (pre) → compressor/expander → multiband
-//   → transient shaper → high smoothing → saturation (post) → high cut → ambience → stereo stage (width: lows never
+//   → transient shaper (below ~2.5 kHz, 17c) → high smoothing → saturation (post) → high cut → ambience → stereo stage (width: lows never
 //   widened; true pan: lows stay put) → level match + stage level → (Scale > 100 %) safety ceiling
 //
 // The same class runs on the audio thread (the device) and on the worker (closed-loop renders of the takes), so what
@@ -54,11 +54,15 @@ enum PlanIdx {
     P_AVG_DWARM, P_AVG_DBITE, P_AVG_SMOOTH, P_AVG_MB1, P_AVG_MB2, P_AVG_MB3, P_AVG_RES1, P_AVG_RES2, P_AVG_RES3, P_AVG_RES4,
     // 17b: the excess tamer (Clean). Depth 0 = off (older plans read these as their neutral values)
     P_EXC_DEPTH, P_EXC_HZ, P_EXC_Q, P_EXC_THR, P_AVG_EXC,
+    // 17c: the excess tamer's standing cut (dB at full depth, ≤ 0): what it cuts at the band's usual level, always in
+    // place, so a hit's first milliseconds are cut too (only the extra above usual waits for the detector)
+    P_EXC_FLOOR,
     NP
 };
 constexpr int NP_16B = P_STAGE_DB + 1;   // plans saved by 16a/16b
 constexpr int NAVG = 10;                 // P_AVG_DWARM … P_AVG_RES4 (P_AVG_EXC, 17b, sits apart: appended)
 constexpr int NP_16C = P_AVG_RES4 + 1;   // plans saved by 16c/17a
+constexpr int NP_17B = P_AVG_EXC + 1;    // plans saved by 17b
 
 struct Plan {
     double v[NP];
@@ -77,6 +81,19 @@ struct Plan {
     double& operator[](int i) { return v[i]; }
     double operator[](int i) const { return v[i]; }
 };
+
+// Clean's excess tamer (17c, firmer): Clean reaches full depth at 1/EXC_DEPTH_PER_CLEAN (67 %); at the band's usual
+// level the whole excess is cut, standing (P_EXC_FLOOR); above usual the cut grows EXC_SLOPE dB per dB (the brain puts
+// the threshold excDb/EXC_SLOPE under the usual level, so the two meet there), up to EXC_RANGE × EXC_SLOPE = 12 dB.
+// The slope stays gentle on purpose: a dynamic cut can only arrive after a hit starts (zero latency), so a steep one
+// leaves the loudest hits' first milliseconds brighter than their body, a tick (slope 1.5: up to +1 dB on real hats;
+// 0.5: under +0.5 dB, measured with tools/probes/clickhat.cpp "rel"). The firmness comes from the standing cut.
+constexpr double EXC_DEPTH_PER_CLEAN = 1.5, EXC_SLOPE = 0.5, EXC_RANGE = 24.0;
+
+// 17c: the transient shaper's gain acts below this (4th order). Above the whole band Punch is measured in (64 Hz – 1 kHz)
+// and well under a hat's noise (5 kHz up). At 1.5 kHz the split already thinned the shaper at 1 kHz, so the solver
+// needed ~3× the renders to reach Punch (voice: 11 → 34); at 2.5 kHz it is back to 17b's, with the same protection.
+constexpr double TS_SPLIT_HZ = 2500;
 
 constexpr int CTRL_BLOCK = 16;
 constexpr double PLAN_TAU = 0.015;   // per smoothing stage
@@ -171,6 +188,7 @@ public:
         sr = sampleRate > 0 ? sampleRate : 48000;
         const double cr = sr / CTRL_BLOCK;
         for (int i = 0; i < NP; i++) { sm[i].setTime(PLAN_TAU, cr); sm[i].reset(p[i]); cur[i] = p[i]; }
+        planTau = PLAN_TAU;
         scaleSm.setTime(0.02, cr); scaleSm.reset(scaleTarget); scale = scaleTarget;
         avgSm.setTime(0.02, cr); avgSm.reset(avgTarget); avgBlend = avgTarget;
         gainSm.setTime(0.004, sr);
@@ -181,7 +199,7 @@ public:
             sat[c].reset(sr); sat2[c].reset(sr);
             for (int k = 0; k < 2; k++) { xoLo[c][k].reset(); xoHi[c][k].reset(); }
         }
-        detHp.reset(); detHpR.reset(); tsHp.reset(); tsLp.reset();
+        detHp.reset(); detHpR.reset(); tsHp.reset(); tsLp.reset(); for (auto& c : tsSplit) for (auto& f : c) f.reset();
         stageMix.setTime(0.01, sr);
         stageMix.reset((p[P_WIDTH] != 1.0 || p[P_PAN] != 0.0) ? 1.0 : 0.0);
         compY1 = compYL = 0; expY1 = expYL = 0;
@@ -199,7 +217,11 @@ public:
         updateCoefs();
         gainSm.reset(gainTarget());
     }
-    void setTarget(const Plan& p) {
+    // tau: the glide per smoothing stage for this plan (17c: a slow solve's landing glides ~0.4 s; 0 = PLAN_TAU).
+    // Only the speed changes: a glide already under way carries on from where it is (no corner, no click).
+    void setTarget(const Plan& p, double tau = 0.0) {
+        const double t = tau > 0 ? tau : PLAN_TAU;
+        if (t != planTau) { planTau = t; for (int i = 0; i < NP; i++) sm[i].setTime(t, sr / CTRL_BLOCK); }
         for (int i = 0; i < NP; i++) sm[i].set(p[i]);
         // a pass-through plan (no takes): no correction either, so the output is exactly the input (the gain's own
         // 4 ms S-glide keeps it click-free)
@@ -321,8 +343,11 @@ public:
                 else gdb = tsS * std::min(-diff, 24.0);
                 gdb = clampd(gdb, -30.0, 24.0);
                 tsGain += tsGainC * (gdb - tsGain);
-                const double g = dbToLin(tsGain);
-                L *= g; R *= g;
+                // 17c: the gain acts below ~2.5 kHz only, where punch lives (RESEARCH [11]); the highs pass untouched
+                // (split by subtraction: at 0 dB exactly the input). On a whole-band gain a hat's noise got sharpened
+                // into clicks.
+                const double g1 = dbToLin(tsGain) - 1.0;
+                L += g1 * tsSplit[0][1].tick(tsSplit[0][0].tick(L)); R += g1 * tsSplit[1][1].tick(tsSplit[1][0].tick(R));
             }
             // high smoothing (the spikes of the highs)
             if (smoothActive) {
@@ -382,6 +407,7 @@ public:
 
 private:
     double sr = 48000;
+    double planTau = PLAN_TAU;
     Smoother sm[NP];
     double cur[NP] = {0};
     double eff[NP] = {0};          // cur with Scale applied to the shaping values
@@ -393,7 +419,8 @@ private:
     OnePole detHp, detHpR;
     Svf xoLo[2][2], xoHi[2][2];   // per channel: Linkwitz-Riley 4th order (two Butterworth stages each)
     Smoother stageMix;            // 0 = the stereo stage is bypassed (exactly the input)
-    Svf tsHp, tsLp;
+    Svf tsHp, tsLp, tsSplit[2][2];   // per channel: 4th-order low-pass (two Butterworth stages), steep enough to keep
+                                     // a +24 dB attack gain out of the highs
     Env tsFast, tsSlow, detEnv;
     DynBell res[4], dyn[2], exc;
     HiSmooth smooth;
@@ -467,14 +494,15 @@ private:
             res[k].apply(clampd(target(depth, res[k].unit, cur[P_AVG_RES1 + k]), -12, 0));
             resActive = resActive || res[k].on || depth > 0;
         }
-        // excess tamer: cuts what the band stands above its own normal share. At its usual level that is the static part
-        // of the excess (excDb − 1.5 dB, so a barely-there excess is left alone), more when the band builds above
-        // usual (1:1, up to 12 dB): the harsh hits get calmed most.
+        // excess tamer: cuts what the band stands above its own normal share. At its usual level that is the whole
+        // static excess (at full depth), standing (17c: P_EXC_FLOOR, so a hit's start is cut like its body), more when
+        // the band builds above usual (0.5 dB per dB): the harsh hits get calmed most. Never more than 12 dB.
         {
             const double ed = clampd(cur[P_EXC_DEPTH], 0, 1);
             const bool used = ed > 0 && cur[P_EXC_HZ] > 20;
             if (used || exc.on) {
-                if (detecting && used) exc.control(cur[P_EXC_THR], 12.0, 12.0, true);
+                exc.floor = clampd(cur[P_EXC_FLOOR], -12, 0);
+                if (detecting && used) exc.control(cur[P_EXC_THR], EXC_RANGE, EXC_RANGE * EXC_SLOPE, true);
                 exc.apply(used ? clampd(target(ed, exc.unit, cur[P_AVG_EXC]), -12, 0) : 0.0);
             }
             excActive = exc.on || used;
@@ -572,9 +600,12 @@ private:
         // transient shaper
         tsA = clampd(eff[P_TS_ATTACK], -4, 4);
         tsS = clampd(eff[P_TS_SUSTAIN], -4, 4);
+        const bool tsWas = tsOn;
         tsOn = tsA != 0.0 || tsS != 0.0 || std::fabs(tsGain) > 1e-9;
+        if (tsOn && !tsWas) for (auto& c : tsSplit) for (auto& f : c) f.reset();   // waking: no stale memory
         tsHp.set(Svf::HP, 50, 0.7071, 0, sr);
         tsLp.set(Svf::LP, 1500, 0.7071, 0, sr);
+        for (auto& c : tsSplit) for (auto& f : c) f.set(Svf::LP, TS_SPLIT_HZ, 0.7071, 0, sr);
         tsFast.set(0.5, 20, sr);
         tsSlow.set(30, 150, sr);
         tsGainC = coefFor(1.0, sr);

@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
         Inputs in; int role = ROLE_LEAD;
         for (int r = 0; r < NROLES; r++) if (std::string(roles[si]) == ROLE_NAMES[r]) role = r;
         in.role = role; const RolePreset rp = rolePresetFor(role, p);
-        in.depth = rp.depth; in.width = rp.width; in.lo = rp.lo; in.hi = rp.hi;
+        in.depth = rp.depth; in.lo = rp.lo; in.hi = rp.hi;
         auto t0 = std::chrono::steady_clock::now();
         Solution q = solve(*ts, p, in, -1, nullptr, 8, false);
         auto t1 = std::chrono::steady_clock::now();

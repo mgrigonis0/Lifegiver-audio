@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
         for (int r = 0; r < NROLES; r++) if (std::string(roles[si]) == ROLE_NAMES[r]) role = r;
         in.role = role;
         const RolePreset rp = rolePresetFor(role, p);
-        in.depth = depth >= 0 ? depth : rp.depth; in.width = rp.width; in.edge = rp.edge; in.lo = rp.lo; in.hi = rp.hi;
+        in.depth = depth >= 0 ? depth : rp.depth; in.edge = rp.edge; in.lo = rp.lo; in.hi = rp.hi;
         if (src.size() < (size_t)(15 * src.sr)) continue;
         Solution s = solve(*ts, p, in, -1);
         double st0, wo0, sd0;

@@ -32,6 +32,7 @@ struct Inputs {
     double knob[NQ];                 // −10 … +10 steps, the user's own extra on top of the stage
     int role = ROLE_LEAD;
     double pan = 0, depth = 0.82, width = 0.5, edge = 0.25;   // the stage (width 0.5 = as the sound is)
+    double room = 0.5;               // 17c: the room's size (the stage's back wall): 0 small … 0.5 as before … 1 large
     double lo = 20, hi = 20000;      // the range the sound may own
     double fit = 0.5;                // 0 = Identity … 1 = Fit
     double clean = 0.4;              // 0 … 1
@@ -40,16 +41,17 @@ struct Inputs {
 };
 
 // a role's starting point on the stage (the button drops the shape here) — first draft, tuned by ear.
-// The pan is never part of it: where a sound sits left or right is the user's call (16c).
-struct RolePreset { double depth, width, edge, lo, hi; };
+// The pan and the width are never part of it: where a sound sits left or right, and how wide it is, are the user's
+// call (16c pan; 17c width: the user always wants a sound "as it is" unless they drag its handles).
+struct RolePreset { double depth, edge, lo, hi; };
 static const RolePreset ROLE_PRESETS[NROLES] = {
-    {0.82, 0.35, 0.0, 60, 20000},     // Lead: front, a bit narrow
-    {0.66, 0.45, 0.15, 80, 20000},    // Hook
-    {0.52, 0.55, 0.0, 100, 16000},    // Support: just behind the lead, out of the lows
-    {0.5, 0.5, 0.1, 25, 20000},       // Rhythm
-    {0.7, 0.15, 0.1, 25, 16000},      // Bass: narrow, owns the lows
-    {0.2, 0.8, 0.0, 120, 16000},      // Bed: back and wide, makes room below
-    {0.15, 0.95, 0.1, 150, 20000},    // FX: back, wide, out of the lows
+    {0.82, 0.0, 60, 20000},     // Lead: front
+    {0.66, 0.15, 80, 20000},    // Hook
+    {0.52, 0.0, 100, 16000},    // Support: just behind the lead, out of the lows
+    {0.5, 0.1, 25, 20000},      // Rhythm
+    {0.7, 0.1, 25, 16000},      // Bass: owns the lows
+    {0.2, 0.0, 120, 16000},     // Bed: back, makes room below
+    {0.15, 0.1, 150, 20000},    // FX: back, out of the lows
 };
 // The preset as the role button applies it to this sound: roles that keep their lows never cut into the sound's
 // own lowest notes (a kick's fundamental is not "rumble").
@@ -77,9 +79,13 @@ inline void stagePush(const Inputs& in, double* push) {
 // to change are held where the sound has them
 inline double identityStrength(const Inputs& in) { return 1 - clampd(in.fit, 0, 1); }
 inline double stageLevelDb(const Inputs& in) { return -(1 - clampd(in.depth, 0, 1)) * 3.0; }
-// the ambience for a distance: none in the front half, up to 0.4 at the very back, a bigger room further back
-inline double ambMixFor(double depth) { return 0.4 * clampd((0.55 - depth) / 0.55, 0, 1); }
-inline double ambSizeFor(double depth) { return 0.6 + 0.5 * clampd((0.55 - depth) / 0.55, 0, 1); }
+// the ambience: distance decides how much of the room is heard (none in the front half, up to 0.4 at the very back
+// with the wall where it was before 17c); the room control (the stage's back wall, 17c) decides its size and scales
+// how much of it comes through: small = 0.4 ×, as before = 1 ×, large = 1.6 × (the chain caps the mix at 0.5)
+inline double ambMixFor(double depth, double room = 0.5) {
+    return 0.4 * clampd((0.55 - depth) / 0.55, 0, 1) * (0.4 + 1.2 * clampd(room, 0, 1));
+}
+inline double roomSizeFor(double room) { return 0.4 + 0.8 * clampd(room, 0, 1); }
 
 // the safe maximum (dB of each quality's measure) for a full turn, per direction, for this sound
 struct Units { double up[NQ], dn[NQ]; bool ok[NQ]; };
@@ -265,13 +271,17 @@ inline Plan basePlan(const Inputs& in, const Profile& p, const Mix& m) {
         double biteUp = std::max(0.0, in.knob[Q_BITE]);
         for (int v = 0; v < NVAR; v++) biteUp += m.w[v] * std::max(0.0, VAR_PUSH[v][Q_BITE]);
         const double keep = 1 - clampd(biteUp / 4, 0, 1);
-        pl[P_EXC_DEPTH] = clampd(in.clean, 0, 1) * keep;
+        // 17c, firmer (17b was gentle in Live): at the usual level the whole excess is cut at full depth, as a
+        // standing cut (P_EXC_FLOOR), a louder harsh hit gets more (the chain: EXC_SLOPE), and Clean reaches full depth
+        // at 67 % (40 % → 0.6)
+        pl[P_EXC_DEPTH] = clampd(clampd(in.clean, 0, 1) * EXC_DEPTH_PER_CLEAN, 0, 1) * keep;
         pl[P_EXC_HZ] = p.excHz;
         pl[P_EXC_Q] = p.excQ;
-        pl[P_EXC_THR] = p.excThr - (p.excDb - 1.5);   // at the usual level: the excess beyond 1.5 dB is cut
+        pl[P_EXC_THR] = p.excThr - p.excDb / EXC_SLOPE;
+        pl[P_EXC_FLOOR] = -clampd(p.excDb, 0, 12);
     }
-    pl[P_AMB_MIX] = ambMixFor(in.depth);
-    pl[P_AMB_SIZE] = ambSizeFor(in.depth);
+    pl[P_AMB_MIX] = ambMixFor(in.depth, in.room);
+    pl[P_AMB_SIZE] = roomSizeFor(in.room);
     return pl;
 }
 
@@ -630,6 +640,7 @@ inline Solution solve(const TakeSet& ts, const Profile& p, const Inputs& in, int
         double cur = costOf(pbS, M, t);
         double mu = 0.01;
         bool fresh = !(warm && warm->ok);   // J was just probed here
+        bool probedHere = fresh;            // J has been measured at a point of this solve (not only warm)
         for (int it = 0; it < maxIter; it++) {
             double tn[NT], Mn[NM];
             gnStep(pbS, s.J, M, t, mu, tn);
@@ -637,7 +648,7 @@ inline Solution solve(const TakeSet& ts, const Profile& p, const Inputs& in, int
             for (int k = 0; k < NT; k++) step += std::fabs(tn[k] - t[k]) / TOOL_H[k];
             if (step < 1e-3) {
                 if (fresh) break;
-                probe(); fresh = true; continue;
+                probe(); fresh = true; probedHere = true; continue;
             }
             eval(tn, Mn);
             const double c = costOf(pbS, Mn, tn);
@@ -672,10 +683,13 @@ inline Solution solve(const TakeSet& ts, const Profile& p, const Inputs& in, int
                 const bool big = cur - c2 > 0.002 * (cur + 1e-9);
                 cur = c2;
                 mu = std::max(mu / 3, 1e-4);
+                // a small gain is a reason to stop, unless the model came from elsewhere and was never measured here:
+                // a warm start from another character mix (17c) can stall far from the goal, so it is measured once
+                if (!big && probedHere) break;
                 fresh = false;
-                if (!big) break;
+                if (!big) { probe(); fresh = true; probedHere = true; }
             } else if (!fresh) {
-                probe(); fresh = true;   // the model was off: measure it again here
+                probe(); fresh = true; probedHere = true;   // the model was off: measure it again here
             } else {
                 mu *= 4;
             }
@@ -769,7 +783,10 @@ enum MoveKind {
     // 16c
     MV_SAT2_EVEN, MV_SAT2_ODD, MV_DWARM, MV_DBITE, MV_TAMER, MV_SMOOTH, MV_MB_LO, MV_MB_MID, MV_MB_HI, MV_AMBIENCE,
     // 17b
-    MV_EXCESS
+    MV_EXCESS,
+    // 17c: Identity holding a quality nobody asked to change (its own EQ band moved against a side effect); the
+    // move's quality says which ("Holding Bite")
+    MV_HOLD
 };
 struct Move { int kind; double value; int q; double reached, asked; };
 
@@ -788,10 +805,17 @@ inline std::vector<Move> movesOf(const Solution& s, double scale = 1.0) {
         mv.push_back(m);
     };
     const double* t = sc;
-    if (std::fabs(t[T_WEIGHT]) >= 0.5) add(t[T_WEIGHT] > 0 ? MV_LOWS_UP : MV_LOWS_DOWN, t[T_WEIGHT], Q_WEIGHT);
-    if (std::fabs(t[T_WARM]) >= 0.5) add(t[T_WARM] > 0 ? MV_WARM_UP : MV_WARM_DOWN, t[T_WARM], Q_WARM);
-    if (std::fabs(t[T_BITE]) >= 0.5) add(t[T_BITE] > 0 ? MV_BITE_UP : MV_BITE_DOWN, t[T_BITE], Q_BITE);
-    if (std::fabs(t[T_AIR]) >= 0.5) add(t[T_AIR] > 0 ? MV_AIR_UP : MV_AIR_DOWN, t[T_AIR], Q_AIR);
+    // an EQ band serves only its own quality (TOOL_FOR): moved while nothing asked for that quality, it is Identity
+    // holding it against another move's side effect (17c: shown as such, so Identity's work is visible)
+    auto eq = [&](int k, int q, int up, int down) {
+        if (std::fabs(t[k]) < 0.5) return;
+        if (std::fabs(s.asked[q]) < 0.25) add(MV_HOLD, t[k], q);
+        else add(t[k] > 0 ? up : down, t[k], q);
+    };
+    eq(T_WEIGHT, Q_WEIGHT, MV_LOWS_UP, MV_LOWS_DOWN);
+    eq(T_WARM, Q_WARM, MV_WARM_UP, MV_WARM_DOWN);
+    eq(T_BITE, Q_BITE, MV_BITE_UP, MV_BITE_DOWN);
+    eq(T_AIR, Q_AIR, MV_AIR_UP, MV_AIR_DOWN);
     if (std::fabs(t[T_TILT]) >= 0.5) add(t[T_TILT] > 0 ? MV_TILT_UP : MV_TILT_DOWN, t[T_TILT], Q_AIR);
     if (t[T_SAT] >= 0.05) add(pl[P_SAT_EVEN] >= 0.5 ? MV_SAT_EVEN : MV_SAT_ODD, t[T_SAT], Q_TEXTURE);
     if (t[T_COMP] >= 0.05) add(MV_COMP, pl[P_COMP_REL], Q_STEADY);

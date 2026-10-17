@@ -7,7 +7,8 @@
 //   → solve the active variation mix (worker) → the plan plays; then the five variations are solved one by one in the
 //   background (their reach, and Solo).
 //   A knob, the stage, the range, Fit, Clean or a variation strength moves → the fast path answers at once (one step
-//   on the last solve's sensitivities) → the slow path re-solves 0.4 s after the last change (if the takes are here).
+//   on the last solve's sensitivities) → the slow path re-solves 0.8 s after the last change (if the takes are here)
+//   and its plan glides in (~0.4 s).
 //
 // Saved in the set (one hidden pattr, a list of numbers: state.h): the reading, the last solve (incl. its
 // sensitivities), the playing plan and the inputs that made it. A reopened set plays that plan exactly; knob turns
@@ -35,7 +36,12 @@ namespace lg {
 constexpr int STATE_FORMAT = 2;
 constexpr double LATE_RESTORE_MS = 10000;
 constexpr double NEW_DEVICE_SAVE_MS = 3000;
-constexpr double SOLVE_DEBOUNCE_MS = 400;
+// 17c: 0.8 s (was 0.4): a slow solve no longer lands in the middle of a tweak (the user heard the sound shift and
+// the knobs change mid-tweak); the fast path still answers at once
+constexpr double SOLVE_DEBOUNCE_MS = 800;
+// 17c: a slow solve's plan glides in over ~0.4 s (two S-shaped stages of 70 ms), so a re-plan that lands after a
+// tweak is a smooth settle, not a step; direct moves (fast path) keep the chain's 15 ms
+constexpr double LANDING_TAU = 0.07;
 constexpr double SAVE_DEBOUNCE_MS = 1500;
 constexpr int MAX_TAKES = 4;
 
@@ -87,6 +93,7 @@ public:
         if (m == "depth") { setInput(in.depth, clampd(n(0, 0.82), 0, 1)); return; }
         if (m == "width") { setInput(in.width, clampd(n(0, 0.5), 0, 1)); return; }
         if (m == "edge") { setInput(in.edge, clampd(n(0, 0), 0, 1)); return; }
+        if (m == "room") { setInput(in.room, clampd(n(0, 0.5), 0, 1)); return; }
         if (m == "lo") { setInput(in.lo, clampd(n(0, 20), 20, 20000)); return; }
         if (m == "hi") { setInput(in.hi, clampd(n(0, 20000), 20, 20000)); return; }
         if (m == "fit") { setInput(in.fit, clampd(n(0, 0.5), 0, 1)); return; }
@@ -216,6 +223,7 @@ public:
     int takeCount() const { return (int)takes.size(); }
     bool isBusy() const { return busy; }
     double reachOf(int v) const { return varReach[v]; }
+    bool adjustable(int q) const { return adjOn[q]; }
 
 private:
     Processor* pr;
@@ -225,6 +233,8 @@ private:
     Inputs in;
     int solo = -1;
     bool compareOn = false;
+    bool adjOn[NQ] = {false, false, false, false, false, false, false, false};   // the knobs the view shows as usable
+    bool adjFresh = true;          // a new reading: decide afresh (no hysteresis yet)
     uint32_t deviceId = 0;
     std::string savedBy;
     bool restored = false, byFallback = false;
@@ -244,6 +254,7 @@ private:
     int playSolo = -1;
     double playReach = -1;
     Plan* pending = nullptr;       // a plan waiting for the audio thread to take the previous one
+    double pendingTau = 0;
     std::unique_ptr<Plan> restoredPlay;   // the plan a reopened set played, and the inputs that made it
     Inputs restoredInputs;
     int restoredSolo = -1;
@@ -258,20 +269,24 @@ private:
         field = v;
         inputsChanged();
     }
+    // saved append-only: a 17c set adds the room at the end; an older set reads as the prefix (room as before, 0.5)
+    static constexpr size_t NIN_17B = (size_t)(NQ + 9 + NVAR), NIN = NIN_17B + 1;
     static std::vector<double> inputsVector(const Inputs& i) {
         std::vector<double> v(i.knob, i.knob + NQ);
         const double rest[] = {(double)i.role, i.pan, i.depth, i.width, i.edge, i.lo, i.hi, i.fit, i.clean};
         v.insert(v.end(), rest, rest + 9);
         v.insert(v.end(), i.vars, i.vars + NVAR);
+        v.push_back(i.room);
         return v;
     }
     static bool inputsFrom(const std::vector<double>* v, Inputs& i) {
-        if (!v || v->size() != (size_t)(NQ + 9 + NVAR)) return false;
+        if (!v || (v->size() != NIN && v->size() != NIN_17B)) return false;
         for (int q = 0; q < NQ; q++) i.knob[q] = (*v)[(size_t)q];
         size_t p = NQ;
         i.role = (int)(*v)[p++]; i.pan = (*v)[p++]; i.depth = (*v)[p++]; i.width = (*v)[p++]; i.edge = (*v)[p++];
         i.lo = (*v)[p++]; i.hi = (*v)[p++]; i.fit = (*v)[p++]; i.clean = (*v)[p++];
         for (int k = 0; k < NVAR; k++) i.vars[k] = (*v)[p++];
+        i.room = v->size() == NIN ? (*v)[p++] : 0.5;
         return true;
     }
     static bool sameInputs(const Inputs& a, const Inputs& b) { return inputsVector(a) == inputsVector(b); }
@@ -280,10 +295,10 @@ private:
         const RolePreset p = rolePresetFor(r, prof);
         in.role = r;
         // the patch's parameters follow (and echo back here; the values are already set, so nothing happens twice).
-        // The pan stays where the user put it.
-        in.depth = p.depth; in.width = p.width; in.edge = p.edge; in.lo = p.lo; in.hi = p.hi;
+        // The pan, the width (17c) and the room stay where the user put them.
+        in.depth = p.depth; in.edge = p.edge; in.lo = p.lo; in.hi = p.hi;
         host->param("role", r);
-        host->param("depth", p.depth); host->param("width", p.width);
+        host->param("depth", p.depth);
         host->param("edge", p.edge); host->param("lo", p.lo); host->param("hi", p.hi);
         inputsChanged();
     }
@@ -307,12 +322,13 @@ private:
         sendUi();
     }
 
-    void setPlay(const Plan& p, double reach) {
+    // landing: a slow solve's result (glides in over ~0.4 s); otherwise the chain's own quick glide
+    void setPlay(const Plan& p, double reach, bool landing = false) {
         play = p;
         playInputs = in;
         playSolo = solo;
         playReach = reach;
-        sendPlanToAudio(play);
+        sendPlanToAudio(play, landing ? LANDING_TAU : 0.0);
         dirty(SAVE_DEBOUNCE_MS);
     }
 
@@ -321,15 +337,17 @@ private:
         pr->setCompare(compareOn, stage);
     }
 
-    // at most one plan in flight: a newer one waits (replacing an older waiting one) until the audio thread took it
-    void sendPlanToAudio(const Plan& p) {
+    // at most one plan in flight: a newer one waits (replacing an older waiting one) until the audio thread took it.
+    // tau: the glide per stage (0 = the chain's own 15 ms)
+    void sendPlanToAudio(const Plan& p, double tau = 0.0) {
         delete pending;
         pending = new Plan(p);
+        pendingTau = tau;
         sendPending();
     }
     void sendPending() {
         if (!pending) return;
-        if (pr->cmds.push(Cmd{C_PLAN, 0, pending})) pending = nullptr;
+        if (pr->cmds.push(Cmd{C_PLAN, pendingTau, pending})) pending = nullptr;
     }
 
     // ---- Listen ------------------------------------------------------------------------------------------------
@@ -361,6 +379,7 @@ private:
             gen++;
             solveSet.reset();
             prof = Profile();
+            adjFresh = true;
             sol = Solution(); shown = Solution();
             for (int v = 0; v < NVAR; v++) { varSol[v] = Solution(); varReach[v] = -1; }
             Plan neutral;
@@ -384,6 +403,7 @@ private:
         }, [this, g, outP, outS]() {
             if (g != gen) return;
             prof = *outP;
+            adjFresh = true;
             solveSet = *outS;
             sol = Solution();
             for (int v = 0; v < NVAR; v++) { varSol[v] = Solution(); varReach[v] = -1; }
@@ -414,7 +434,7 @@ private:
                 const bool same = sameInputs(inp, in) && solo < 0;
                 Solution s = same ? sol : ((solo >= 0 && varSol[solo].ok) ? fastStep(varSol[solo], prof, in, solo) : fastStep(sol, prof, in, solo));
                 shown = s;
-                setPlay(s.plan, s.reach);
+                setPlay(s.plan, s.reach, true);
             }
             sendUi();
             if (!sol.ok) return;
@@ -477,6 +497,7 @@ private:
         if (const std::vector<double>* o = d.get("oct6")) p.oct6 = *o;
         p.valid = true;
         prof = p;
+        adjFresh = true;
         takes.clear();
         solveSet.reset();
         sol = Solution();
@@ -493,7 +514,8 @@ private:
             else if (sv->size() == solSize(NT_16B, false)) { nt = NT_16B; raw = false; }
         }
         auto planOk = [](const std::vector<double>* v) {
-            return v && (v->size() == (size_t)NP || v->size() == (size_t)NP_16C || v->size() == (size_t)NP_16B);
+            return v && (v->size() == (size_t)NP || v->size() == (size_t)NP_17B || v->size() == (size_t)NP_16C ||
+                         v->size() == (size_t)NP_16B);
         };
         auto planFrom = [](const std::vector<double>& v, Plan& out) { out = Plan(); for (size_t i = 0; i < v.size() && i < (size_t)NP; i++) out[(int)i] = v[i]; };
         if (nt > 0 && planOk(sp)) {
@@ -576,8 +598,9 @@ private:
         double push[NQ];
         askedPush(in, solo, push);   // the arc on each knob: what the stage and the characters ask
         std::vector<double> kv;
+        updateAdjustable();
         for (int q = 0; q < NQ; q++) {
-            const bool adj = prof.valid && (sol.ok ? sol.units.ok[q] : prof.readValid[q]);
+            const bool adj = adjOn[q];
             kv.push_back(prof.valid ? (double)readingWord(q, prof.reading[q], prof.readValid[q]) : 0.0);
             const double c = prof.certainty[q];
             kv.push_back(c >= 0.8 ? 3 : (c >= 0.5 ? 2 : 1));
@@ -589,6 +612,24 @@ private:
         host->ui("knobs", kv);
         sendMovesUi();
         sendVarsUi();
+    }
+
+    // 17c: which knobs the view shows as usable, from the reading (the takes as heard), not from each solve: a solve's
+    // measured zero point can hover at a limit and flip a knob grey in the middle of a tweak. A band (Weight … Air)
+    // goes grey below −60 dB of the sound's energy and comes back only above −56 (hysteresis), or when the Range
+    // leaves it no room; the other qualities follow what the reading could measure.
+    void updateAdjustable() {
+        if (!prof.valid) { for (bool& a : adjOn) a = false; return; }
+        const BandEdges be = bandEdges(in.lo, in.hi);
+        for (int q = 0; q < NQ; q++) {
+            bool on = prof.readValid[q];
+            if (on && q <= Q_AIR) {
+                const double r = prof.reading[q];
+                on = bandUsable(be.lo[q], be.hi[q]) && ((adjOn[q] || adjFresh) ? r >= -60 : r >= -56);
+            }
+            adjOn[q] = on;
+        }
+        adjFresh = false;
     }
 
     void sendMovesUi() {

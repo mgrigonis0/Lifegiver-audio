@@ -159,7 +159,7 @@ static void testModules() {
         for (const char* nm : {"drums", "pluck"}) {
             const Audio a = sig::byName(nm, 3);
             Plan p;
-            p[P_AMB_MIX] = ambMixFor(0.0); p[P_AMB_SIZE] = ambSizeFor(0.0);
+            p[P_AMB_MIX] = ambMixFor(0.0); p[P_AMB_SIZE] = roomSizeFor(0.5);
             Stereo o = renderChain(p, fromAudio(a), a.sr);
             Audio room = a;
             for (size_t i = 0; i < a.size(); i++) { room.l[i] = (float)(o.l[i] - a.l[i]); room.r[i] = (float)(o.r[i] - a.r[i]); }
@@ -173,7 +173,7 @@ static void testModules() {
             const Audio a = sig::byName(nm, 3);
             const Ref ref = makeRef(a);
             Plan p;
-            p[P_AMB_MIX] = ambMixFor(0.1); p[P_AMB_SIZE] = ambSizeFor(0.1);
+            p[P_AMB_MIX] = ambMixFor(0.1); p[P_AMB_SIZE] = roomSizeFor(0.5);
             Stereo o = renderChain(p, fromAudio(a), a.sr);
             MeasureAcc m0, m1;
             m0.add(a, ref);
@@ -183,11 +183,37 @@ static void testModules() {
             longer = longer && t1 > t0 + 0.7;
         }
         fails += expect(longer && ambMixFor(0.8) == 0.0, "the ambience adds a short room at the back (-24 … -10 LU, a tail grows); none in the front half");
+        // 17c: the room control (the stage's back wall). Small = drier, large = more and longer; even a large room at
+        // the very back stays under −9 LU (wetter mixes were all judged too wet: RESEARCH, De Man 2017), and the
+        // front half stays dry whatever the room
+        {
+            bool order = true, dry = true;
+            for (const char* nm : {"drums", "pluck", "pad"}) {
+                const Audio a = sig::byName(nm, 3);
+                double lu[3];
+                const double rooms[3] = {0.0, 0.5, 1.0};
+                for (int k = 0; k < 3; k++) {
+                    Plan p;
+                    p[P_AMB_MIX] = ambMixFor(0.0, rooms[k]); p[P_AMB_SIZE] = roomSizeFor(rooms[k]);
+                    Stereo o = renderChain(p, fromAudio(a), a.sr);
+                    Audio room = a;
+                    for (size_t i = 0; i < a.size(); i++) { room.l[i] = (float)(o.l[i] - a.l[i]); room.r[i] = (float)(o.r[i] - a.r[i]); }
+                    std::vector<double> b0, b1;
+                    loudnessBlocks(a, b0); loudnessBlocks(room, b1);
+                    lu[k] = integratedLoudness(b1) - integratedLoudness(b0);
+                }
+                std::printf("    the room at the very back, %s: small %+.1f, as before %+.1f, large %+.1f LU under the dry sound\n", nm, lu[0], lu[1], lu[2]);
+                order = order && lu[0] < lu[1] - 3 && lu[2] > lu[1] + 1;
+                dry = dry && lu[2] <= -9;
+            }
+            fails += expect(order && dry && ambMixFor(0.6, 1.0) == 0.0,
+                            "the room control: small drier, large wetter (never above -9 LU); the front half stays dry");
+        }
         // dragged back and forth on the stage (the room wakes, fades, sleeps, wakes again): no clicks
         {
             Chain ch;
             Plan front, back;
-            back[P_AMB_MIX] = ambMixFor(0.0); back[P_AMB_SIZE] = ambSizeFor(0.0);
+            back[P_AMB_MIX] = ambMixFor(0.0); back[P_AMB_SIZE] = roomSizeFor(0.5);
             ch.reset(front, sr);
             std::vector<double> L((size_t)(8 * sr)), R(L.size());
             for (size_t i = 0; i < L.size(); i++) L[i] = R[i] = 0.4 * std::sin(2 * kPi * 70 * i / sr);
@@ -280,7 +306,7 @@ static void testModules() {
         fails += expect(basePlan(in, pp, mx)[P_EXC_DEPTH] == 0.0, "asking for Bite (+4) switches the taming off: it never fights an ask");
         in.knob[Q_BITE] = 0;
         in.clean = 0.4;
-        fails += expect(std::fabs(basePlan(in, pp, mx)[P_EXC_DEPTH] - 0.4) < 1e-9, "the taming follows Clean (40 % = 40 % depth)");
+        fails += expect(std::fabs(basePlan(in, pp, mx)[P_EXC_DEPTH] - 0.6) < 1e-9, "the taming follows Clean (17c: 40 % = 0.6 depth, full from 67 %)");
     }
     // 17b: Identity strength holds what nobody asked to change; roles only place the sound
     {
@@ -458,5 +484,19 @@ static void testModules() {
         c.idle(0.1);
         fails += expect(c.ctl->playing()[P_AIR_DB] < air - 0.5 && c.ctl->playing()[P_EXC_DEPTH] == 0.0,
                         "and its knobs still act; Clean's taming waits for a new Listen (no excess known)");
+        // a 17b set (plans without the standing cut, inputs without the room)
+        StateDoc d3;
+        TestHost::doc(a.host.pattr, d3);
+        d3.num["play"].resize(NP_17B);
+        d3.num["solplan"].resize(NP_17B);
+        d3.num["playin"].resize(d3.num["playin"].size() - 1);
+        d3.str["saved_by"] = "2026-10-17b";
+        Rig e;
+        e.host.pattr = atomsOf(encodeState(d3));
+        e.init();
+        e.idle(1.0);
+        bool same3 = e.ctl->profile().valid && e.ctl->profile().has17b && e.ctl->inputs().room == 0.5;
+        for (int i = 0; i < NP; i++) same3 = same3 && bitEqual(e.ctl->playing()[i], i < NP_17B ? a.ctl->playing()[i] : neutral[i]);
+        fails += expect(same3, "a 17b set opens: exactly its plan plays (no standing cut until it re-plans), the room as before");
     }
 }

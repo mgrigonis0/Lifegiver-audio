@@ -233,6 +233,8 @@ struct Measured {
 
 struct BandEdges { double lo[4], hi[4]; };
 constexpr double WEIGHT_TOP = 150, WARM_TOP = 600, BITE_LO = 1800, BITE_HI = 5000, AIR_LO = 8000;
+// Punch needs its band (64 Hz – 1 kHz) to hold real energy: within 25 dB of the whole sound (17c)
+constexpr double PUNCH_MIN_SHARE = 3.1623e-3;
 
 inline BandEdges bandEdges(double rangeLo, double rangeHi) {
     BandEdges b;
@@ -378,7 +380,10 @@ public:
             o.valid[i] = true;
         }
         if (flatN) { o.q[Q_TEXTURE] = flatSum / flatN; o.valid[Q_TEXTURE] = true; }
-        if (punchN) { o.q[Q_PUNCH] = punchSum / punchN; o.valid[Q_PUNCH] = true; }
+        // 17c: punch is read in 64 Hz – 1 kHz; a sound with next to nothing there (a hi-hat) has no punch to read or
+        // shape: its "transients" there are noise, and shaping them made 17b's hats click
+        const double punchShare = bandPower(64, 1000) / std::max(bandPower(20, 24000), 1e-30);
+        if (punchN && punchShare >= PUNCH_MIN_SHARE) { o.q[Q_PUNCH] = punchSum / punchN; o.valid[Q_PUNCH] = true; }
         if (tailN) { o.q[Q_TAIL] = tailSum / tailN; o.valid[Q_TAIL] = true; }
         if (spreadW > 0) { o.q[Q_STEADY] = -spreadSum / spreadW; o.valid[Q_STEADY] = true; }
         o.loudness = integratedLoudness(blocks);

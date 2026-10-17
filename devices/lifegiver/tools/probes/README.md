@@ -3,9 +3,11 @@
 Measurement programs used while building (not part of CI). Build from this folder:
 `g++ -std=c++17 -O2 -I../../source/engine -o /tmp/x <probe>.cpp -lpthread`. Stems: `make_stems.sh`, `make_hats.py`.
 
-- `clickhat.cpp <wav> [Role]`: added clicks at onsets (peak in the first 2 ms, >8 kHz energy in 3 ms, level-matched),
-  for the whole plan and one module at a time. Found 17b's hi-hat click (Lead's front distance cue → Punch → transient
-  shaper + compressor: worst hits +3…+5 dB in the highs).
+- `clickhat.cpp <wav> [Role] [A..E]`: added clicks at onsets (peak in the first 2 ms, >8 kHz energy in 3 ms,
+  level-matched), for the whole plan and one module at a time; optional character at 100 %. Judge clicks by **rel**
+  (17c): the onset's >8 kHz change minus the change in the same hit's body (5–30 ms): a static EQ reads ~0 there, while
+  the level-matched peak/HF columns also move with any static cut. Found 17b's hi-hat click (Lead's front distance
+  cue → Punch → transient shaper + compressor: worst hits +3…+5 dB). 17c: hats ≤ +0.41 dB rel (Rhythm, Lead).
 - `reachcheck.cpp <stems dir>`: first-plan and solve time, A–E reach per stem (compare builds).
 - `levelcheck.cpp <stems dir> [0|1]`: a character switched on mid-play on the fast path; output vs input loudness,
   settled and worst 400 ms (live level match on/off).

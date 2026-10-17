@@ -172,5 +172,49 @@ const after = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join(
 expect(/1\/2/.test(before) && /2\/2/.test(after) && /Level matched/.test(after), "Moves pages: a click shows the rest");
 expect(!paintOps(m).some(o => (o[0] === "move_to" || o[0] === "rectangle_rounded" || o[0] === "rectangle") && o[1] > 706.01), "nothing drawn beyond the device width (706 px)");
 
+// 17c: width = the sound's own width by default; the narrowest bubble keeps its handles apart; the back wall = room
+m.ctx.ondrag(0, 0, 0);
+msg(m, "width", 0.5); msg(m, "room", 0.5); msg(m, "depth", 0.5); msg(m, "pan", 0);
+const s17 = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+expect(/own width/.test(s17) && /· room ·/.test(s17) && /ROOM/.test(s17), "the stage line says 'own width' and 'room' at the defaults; the wall is labelled ROOM");
+msg(m, "width", 0);
+const g17 = X.geom();
+expect(X.sx(g17.cx + g17.rx) - X.sx(g17.cx - g17.rx) >= 20, "the narrowest bubble still keeps its handles apart (>= 20 px between them)");
+const n17 = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+expect(/narrower/.test(n17), "narrower than its own: the stage line says so");
+msg(m, "width", 0.5);
+const gw = X.geom();
+click(X.sx(gw.cx + gw.rx), X.sy(gw.cy));
+const wd = dragTo(X.sx(gw.cx + bubbleRxAt(0.75, gw.scale)), X.sy(gw.cy));
+function bubbleRxAt(w, sc) { return X.bubbleRx(w, sc); }
+expect(wd.length > 0 && /^p width 0\.75/.test(wd[wd.length - 1]), "dragging a side handle sets the width (its own width + 0.25 -> 0.75)");
+m.ctx.ondrag(0, 0, 0);
+m.sent.length = 0;
+m.ctx.ondblclick(X.sx(X.geom().cx + X.geom().rx), X.sy(X.geom().cy));
+expect(m.sent.some(s => s === "p width 0.5"), "double-click on a handle: back to its own width");
+const tab = X.wallTab();
+click(tab[0] + tab[2] / 2, tab[1] + 2);
+const rd = dragTo(tab[0] + tab[2] / 2, X.sy(4));
+expect(rd.length > 0 && /^p room 1$/.test(rd[rd.length - 1]), "dragging the wall's tab back: a large room (room 1)");
+m.ctx.ondrag(0, 0, 0);
+msg(m, "room", 1);
+const big = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+expect(/LARGE ROOM/.test(big) && /large room/.test(big), "pushed back: LARGE ROOM on the wall and in the stage line");
+const tab2 = X.wallTab();
+click(tab2[0] + tab2[2] / 2, tab2[1] + 2);
+const rd2 = dragTo(tab2[0] + tab2[2] / 2, X.sy(30));
+expect(rd2.length > 0 && /^p room 0$/.test(rd2[rd2.length - 1]), "dragging it forward: a small room (room 0, it stops there)");
+m.ctx.ondrag(0, 0, 0);
+m.sent.length = 0;
+const tab3 = X.wallTab();
+m.ctx.ondblclick(tab3[0] + tab3[2] / 2, tab3[1] + 2);
+expect(m.sent.some(s => s === "p room 0.5"), "double-click on the wall: the room as before");
+msg(m, "room", 0.5);
+// Identity's holding lines (move 37, its quality in the third number)
+msg(m, "moves", 7, 3.1, 3, 2.9, 3.0, 37, -0.8, 2, 0.1, 0, 24, 0.2, -1, 0, 0);
+const hold = paintOps(m).filter(o => o[0] === "show_text").map(o => o[1]).join("|");
+expect(/Holding Bite/.test(hold) && /Lifting air/.test(hold), "Identity shows what it holds ('Holding Bite')");
+fs.writeFileSync(path.join(outDir, "view_17c.json"), JSON.stringify(paintOps(m)));
+
 console.log(failures ? `\n${failures} FAILED` : "\nview: all passed");
 process.exit(failures ? 1 : 0);

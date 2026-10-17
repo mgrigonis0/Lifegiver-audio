@@ -49,17 +49,17 @@ var MOVE = ["", "Lifting lows", "Easing lows", "Warming low-mids", "Clearing low
     "Edgy harmonics", "Steadying level", "Lowering gaps", "Sharper attacks", "Softer attacks", "Longer sustain",
     "Shorter tails", "Low cut", "High cut", "Widening, lows mono", "Narrowing", "Pan", "Level matched", "Set back",
     "Warm harmonics, post", "Edgy harmonics, post", "Easing mud", "Easing harshness", "Taming", "Smoothing grit",
-    "Holding lows", "Holding mids", "Holding highs", "Room", "Taming harshness"];
+    "Holding lows", "Holding mids", "Holding highs", "Room", "Taming harshness", "Holding"];
 var HELD = { 28: 1, 29: 1, 30: 1, 31: 1, 32: 1, 33: 1, 34: 1, 36: 1 };   // dynamic moves: "held" in Average mode
 var NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 // the Live parameters (as last heard from them)
 var P = { weight: 0, warm: 0, bite: 0, air: 0, texture: 0, punch: 0, tail: 0, steady: 0,
-    pan: 0, depth: 0.82, width: 0.35, edge: 0, lo: 60, hi: 20000, role: 0, fit: 0.5, amount: 100, clean: 40,
-    vara: 0, varb: 0, varc: 0, vard: 0, vare: 0, scale: 100, dynamics: 0, gain: 0 };
+    pan: 0, depth: 0.82, width: 0.5, edge: 0, lo: 60, hi: 20000, role: 0, fit: 0.5, amount: 100, clean: 40,
+    vara: 0, varb: 0, varc: 0, vard: 0, vare: 0, scale: 100, dynamics: 0, gain: 0, room: 0.5 };
 var LIMITS = { pan: [-1, 1], depth: [0, 1], width: [0, 1], edge: [0, 1], lo: [20, 20000], hi: [20, 20000], fit: [0, 1],
     amount: [0, 100], clean: [0, 100], vara: [0, 100], varb: [0, 100], varc: [0, 100], vard: [0, 100], vare: [0, 100],
-    scale: [0, 400], dynamics: [0, 1], gain: [-12, 12] };
+    scale: [0, 400], dynamics: [0, 1], gain: [-12, 12], room: [0, 1] };
 // what the engine said
 var T = { n: 0, secs: [0, 0, 0, 0], cap: 0, kept: 0, busy: 0 };
 var F = { valid: 0, heard: 0, sec: 0, lo: 0, hi: 0, harm: 0, sus: 0, corr: 1, dots: 1, reach: -1, stageDb: 0, compare: 0, live: 0 };
@@ -207,21 +207,38 @@ function stageX() { return ix("stage") + 42; }
 function rangeX() { return stageX() + SW + 3; }
 function sx(lx) { return stageX() + lx * KX; }
 function sy(ly) { return SY + ly * KY; }
+// 17c: width 0.5 = the sound's own width (the default; roles leave it alone). The narrowest bubble is still wide
+// enough that its two handles never touch.
+function bubbleRx(w, scale) { return (26 + 40 * w) * scale; }
 function geom() {
     var depth = P.depth, scale = 0.62 + 0.38 * depth, cy = 18 + depth * 70, half = 76 + 54 * depth;
     var cx = 134 + P.pan * half * 0.8;
-    return { scale: scale, cy: cy, cx: cx, rx: (7 + P.width * 56) * scale, ry: 7 * scale };
+    return { scale: scale, cy: cy, cx: cx, rx: bubbleRx(P.width, scale), ry: 7 * scale };
+}
+// 17c: the back wall (the room's size): pulled close = a small room, pushed back = a large one
+function wallY() { return 4 + (1 - clamp(P.room, 0, 1)) * 14; }
+function wallXL(wy) { return 58 - 54 * (wy - 4) / 99; }   // where the floor's sides meet the wall
+function wallXR(wy) { return 210 + 54 * (wy - 4) / 99; }
+function roomWord() { return P.room < 0.33 ? "small room" : (P.room > 0.66 ? "large room" : "room"); }
+function ownWidth() { return Math.abs(P.width - 0.5) < 0.02; }
+// the wall's tab (screen px) and its hit area: the tab, or the wall line itself
+function wallTab() { var wy = sy(wallY()); return [sx(134) - 9, wy - 2.5, 18, 5]; }
+function onWall(x, y) {
+    var wy = sy(wallY()), tb = wallTab();
+    if (inRect(x, y, [tb[0] - 3, tb[1] - 3, tb[2] + 6, tb[3] + 6])) return true;
+    return Math.abs(y - wy) <= 3 && x >= sx(wallXL(wallY())) && x <= sx(wallXR(wallY()));
 }
 function hzToY(hz) { return 103 - (Math.log(hz) / Math.LN10 - Math.log(20) / Math.LN10) / 3 * 99; }
 function yToHz(y) { return Math.pow(10, Math.log(20) / Math.LN10 + (103 - y) / 99 * 3); }
 
-function stagePath(g) {
+function stagePath(g, rx) {
     mgraphics.new_path();
     var N = 36;
+    if (rx === undefined) rx = g.rx;
     for (var i = 0; i <= N; i++) {
         var a = 2 * Math.PI * (i % N) / N;
         var k = 1 + 0.03 * Math.sin(3 * a);
-        var px = sx(g.cx + Math.cos(a) * g.rx * k), py = sy(g.cy + Math.sin(a) * g.ry * k);
+        var px = sx(g.cx + Math.cos(a) * rx * k), py = sy(g.cy + Math.sin(a) * g.ry * k);
         if (i === 0) mgraphics.move_to(px, py); else mgraphics.line_to(px, py);
     }
     mgraphics.close_path();
@@ -230,8 +247,9 @@ function stagePath(g) {
 function stageWords() {
     var lvl = -(1 - P.depth) * 3;
     return (P.depth > 0.66 ? "front" : (P.depth < 0.33 ? "back, darker" : "middle")) +
-        " \u00b7 " + (P.width < 0.3 ? "narrow" : (P.width > 0.7 ? "wide" : "medium")) +
+        " \u00b7 " + (ownWidth() ? "own width" : (P.width < 0.5 ? "narrower" : "wider")) +
         " \u00b7 " + fmtHz(P.lo) + "\u2013" + fmtHz(P.hi) +
+        " \u00b7 " + roomWord() +
         " \u00b7 " + (lvl > -0.05 ? "0 dB" : lvl.toFixed(1) + " dB");
 }
 
@@ -245,19 +263,25 @@ function paintStage() {
         box(x0, 26 + r * 15, 39, 13, 2, on ? C.stage : [0.2, 0.2, 0.2], a);
         text(ROLES[role], x0 + 19.5, 26 + r * 15 + 9.5, 7.5, on ? [0.063, 0.125, 0.122] : [0.74, 0.74, 0.74], true, 1, 37, a);
     }
-    // the stage, seen from above: back wall at the top, the listener at the bottom
+    // the stage, seen from above: back wall at the top (17c: it moves with the room's size), the listener at the bottom
+    var wy = wallY(), wl = wallXL(wy), wr = wallXR(wy);
     col(C.floor, a);
     mgraphics.new_path();
-    mgraphics.move_to(sx(58), sy(4)); mgraphics.line_to(sx(210), sy(4)); mgraphics.line_to(sx(264), sy(103)); mgraphics.line_to(sx(4), sy(103));
+    mgraphics.move_to(sx(wl), sy(wy)); mgraphics.line_to(sx(wr), sy(wy)); mgraphics.line_to(sx(264), sy(103)); mgraphics.line_to(sx(4), sy(103));
     mgraphics.close_path();
     mgraphics.fill_preserve();
     col(C.line, a); mgraphics.set_line_width(1); mgraphics.stroke();
-    line(sx(134), sy(4), sx(134), sy(103), [0.17, 0.17, 0.17], 1, a);
+    line(sx(134), sy(wy), sx(134), sy(103), [0.17, 0.17, 0.17], 1, a);
     line(sx(44), sy(30), sx(224), sy(30), [0.153, 0.153, 0.153], 1, a);
     line(sx(30), sy(56), sx(238), sy(56), [0.153, 0.153, 0.153], 1, a);
     line(sx(17), sy(80), sx(251), sy(80), [0.153, 0.153, 0.153], 1, a);
-    text("BACK", sx(134), sy(11), 5.5, [0.37, 0.37, 0.37], false, 1, 0, a);
+    line(sx(wl), sy(wy), sx(wr), sy(wy), C.stagePale, 1.5, a);
+    var tb = wallTab();
+    box(tb[0], tb[1], tb[2], tb[3], 2, C.stagePale, a);
+    text(roomWord().toUpperCase(), sx(134), sy(wy) + 9, 5.5, [0.45, 0.45, 0.45], false, 1, 0, a);
     var g = geom();
+    // not at its own width: a faint outline shows where its own width is
+    if (!ownWidth()) { stagePath(g, bubbleRx(0.5, g.scale)); col(C.stagePale, 0.35 * a); mgraphics.set_line_width(1); mgraphics.stroke(); }
     stagePath(g);
     col(C.stage, (0.3 + 0.5 * P.depth) * a);
     mgraphics.fill_preserve();
@@ -284,6 +308,7 @@ function paintStage() {
 
 function moveText(m) {
     var s = MOVE[m[0]] || "";
+    if (m[0] === 37) s = "Holding " + (m[2] >= 0 && m[2] < 8 ? KL[m[2]] : "");
     if (m[0] === 19) s += " " + fmtHz(m[1]);
     if (m[0] === 20) s += " " + fmtHz(m[1]);
     if (m[0] === 13) s += m[1] >= 250 ? ", slow" : (m[1] <= 60 ? ", fast" : "");
@@ -421,6 +446,7 @@ function onclick(x, y, but, cmd, shift, capslock, option, ctrl) {
         // stage handles, then the shape itself (hit areas in screen pixels)
         var RX = rangeX(), g = geom(), ly = (y - SY) / KY;
         if (Math.abs(y - sy(g.cy)) <= 5 && (Math.abs(x - sx(g.cx - g.rx)) <= 5 || Math.abs(x - sx(g.cx + g.rx)) <= 5)) { drag = { kind: "width" }; return; }
+        if (onWall(x, y)) { drag = { kind: "room" }; return; }
         if (x >= stageX() && x < stageX() + SW && y >= SY && y < SY + SH) { drag = { kind: "move" }; ondrag(x, y, 1); return; }
         if (x >= RX && x < RX + RW && y >= SY && y < SY + SH) {
             var dh = Math.abs(ly - hzToY(P.hi)), dl = Math.abs(ly - hzToY(P.lo));
@@ -493,12 +519,18 @@ function ondrag(x, y, but, cmd, shift, capslock, option, ctrl) {
         P.depth = depth;
         setP("depth", depth);
         setP("pan", clamp((lx - 134) / (half * 0.8), -1, 1));
-    } else if (d.kind === "width") setP("width", clamp((Math.abs(lx - g.cx) / g.scale - 7) / 56, 0, 1));
+    } else if (d.kind === "width") setP("width", clamp((Math.abs(lx - g.cx) / g.scale - 26) / 40, 0, 1));
+    else if (d.kind === "room") setP("room", Math.round(clamp(1 - (ly - 4) / 14, 0, 1) * 100) / 100);
     else if (d.kind === "hi") setP("hi", Math.max(clamp(yToHz(ly), 20, 20000), P.lo * 2));
     else if (d.kind === "lo") setP("lo", Math.min(clamp(yToHz(ly), 20, 20000), P.hi / 2));
 }
 
 function ondblclick(x, y) {
+    if (F.valid) {   // the stage: a handle back to its own width, the wall back to the room as before
+        var g = geom();
+        if (Math.abs(y - sy(g.cy)) <= 5 && (Math.abs(x - sx(g.cx - g.rx)) <= 5 || Math.abs(x - sx(g.cx + g.rx)) <= 5)) { setP("width", 0.5); return; }
+        if (onWall(x, y)) { setP("room", 0.5); return; }
+    }
     for (var k = 0; k < 8; k++) { var c = knobCell(k); if (inRect(x, y, [c.x, c.y, c.w, c.h]) && F.valid) { setP(KN[k], 0); return; } }
     for (var o = 0; o < 2; o++) if (outKnobHit(x, y, o)) { setP(outKnob(o).p, 100); return; }
     if (inRect(x, y, gainRect())) { setP("gain", 0); return; }

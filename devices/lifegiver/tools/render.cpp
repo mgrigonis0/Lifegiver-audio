@@ -39,8 +39,8 @@ static const char* const MOVE_TEXT[] = {
     "Widening, lows kept mono", "Narrowing", "Stereo pan", "Level matched to the input", "Set back",
     "Warm harmonics after dynamics", "Edgy harmonics after dynamics", "Easing mud when it builds", "Easing harshness when it builds",
     "Taming resonances", "Smoothing grit", "Holding the lows", "Holding the mids", "Holding the highs", "Room (distance)",
-    "Taming harshness"};
-static_assert(sizeof(MOVE_TEXT) / sizeof(MOVE_TEXT[0]) == MV_EXCESS + 1, "a name for every move");
+    "Taming harshness", "Holding (Identity)"};
+static_assert(sizeof(MOVE_TEXT) / sizeof(MOVE_TEXT[0]) == MV_HOLD + 1, "a name for every move");
 
 // Listen, as the device does it: Arm, feed the audio in blocks, take what the capture keeps
 static Audio listen(const Audio& src, size_t from, double sr) {
@@ -100,13 +100,14 @@ static void printSolution(const Solution& s) {
         if (std::fabs(s.asked[q]) >= 0.25) std::printf(" %s %+.1f of %+.1f", QUALITY_NAMES[q], s.reached[q], s.asked[q]);
     std::printf("\n");
     for (const Move& m : movesOf(s)) {
-        std::printf("      · %-28s", MOVE_TEXT[m.kind]);
+        if (m.kind == MV_HOLD) std::printf("      · Holding %-20s", QUALITY_NAMES[m.q]);
+        else std::printf("      · %-28s", MOVE_TEXT[m.kind]);
         if (m.kind == MV_LOWCUT || m.kind == MV_HIGHCUT) std::printf(" %.0f Hz", m.value);
         else if (m.kind == MV_MAKEUP || m.kind == MV_STAGE_LEVEL) std::printf(" %+.1f dB", m.value);
         else if (m.kind == MV_WIDER || m.kind == MV_NARROWER) std::printf(" side ×%.2f", m.value);
         else if (m.kind == MV_PAN) std::printf(" %+.2f", m.value);
         else if (m.kind == MV_EXCESS) std::printf(" %.0f Hz", m.value);
-        else if (m.kind <= MV_TILT_DOWN) std::printf(" %+.1f dB", m.value);
+        else if (m.kind <= MV_TILT_DOWN || m.kind == MV_HOLD) std::printf(" %+.1f dB", m.value);
         else if (m.kind == MV_COMP) std::printf(" release %.0f ms", m.value);
         else std::printf(" %.2f", m.value);
         if (m.q >= 0) std::printf("   (%s %+.1f of %+.1f)", QUALITY_NAMES[m.q], m.reached, m.asked);
@@ -117,7 +118,7 @@ static void printSolution(const Solution& s) {
 static void applyRole(Inputs& in, int role, const Profile& p = Profile()) {
     in.role = role;
     const RolePreset r = rolePresetFor(role, p);
-    in.depth = r.depth; in.width = r.width; in.edge = r.edge; in.lo = r.lo; in.hi = r.hi;
+    in.depth = r.depth; in.edge = r.edge; in.lo = r.lo; in.hi = r.hi;
 }
 
 static int roleByName(const std::string& n) {
@@ -218,6 +219,7 @@ static int file(int argc, char** argv) {
         else if (k == "depth") in.depth = std::atof(v.c_str());
         else if (k == "width") in.width = std::atof(v.c_str());
         else if (k == "edge") in.edge = std::atof(v.c_str());
+        else if (k == "room") in.room = std::atof(v.c_str());
         else if (k == "pan") in.pan = std::atof(v.c_str());
         else if (k == "lo") in.lo = std::atof(v.c_str());
         else if (k == "hi") in.hi = std::atof(v.c_str());

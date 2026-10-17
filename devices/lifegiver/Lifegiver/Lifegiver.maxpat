@@ -172,7 +172,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-17b"
+					"text": "patch 2026-10-17c"
 				}
 			},
 			{
@@ -271,7 +271,7 @@
 					"filename": "lifegiver.strip.js",
 					"parameter_enable": 0,
 					"border": 0,
-					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched; Scale multiplies the processing (0 = none, 100 % = as planned, up to 400 %); Dyn/Avg: the dynamic tools follow the sound or hold their average (less CPU). The output always matches the input's loudness; Gain (centre = 0 dB) is your own trim after everything.",
+					"annotation": "Lifegiver listens to a sound and shapes it for its job in the mix. Press Arm and play (up to 4 takes). Pick a role, place the sound on the stage (drag: pan and distance; side handles: width, centre = its own; the back wall's tab: the room's size; the strip: the range it owns), and turn the knobs for more or less of each quality. Moves shows what it does; A\u2013E add characters, from subtle (A) to strong (E). Amount 0 % = the original, untouched; Scale multiplies the processing (0 = none, 100 % = as planned, up to 400 %); Dyn/Avg: the dynamic tools follow the sound or hold their average (less CPU). The output always matches the input's loudness; Gain (centre = 0 dB) is your own trim after everything.",
 					"annotation_name": "Lifegiver"
 				}
 			},
@@ -299,7 +299,7 @@
 					"id": "obj-13",
 					"maxclass": "newobj",
 					"numinlets": 2,
-					"numoutlets": 27,
+					"numoutlets": 28,
 					"patching_rect": [
 						40.0,
 						640.0,
@@ -333,9 +333,10 @@
 						"",
 						"",
 						"",
+						"",
 						""
 					],
-					"text": "route weight warm bite air texture punch tail steady role pan depth width edge lo hi fit amount clean vara varb varc vard vare scale dynamics gain"
+					"text": "route weight warm bite air texture punch tail steady role pan depth width edge lo hi fit amount clean vara varb varc vard vare scale dynamics gain room"
 				}
 			},
 			{
@@ -986,7 +987,7 @@
 							"parameter_initial_enable": 1,
 							"parameter_unitstyle": 1,
 							"parameter_initial": [
-								0.35
+								0.5
 							]
 						}
 					}
@@ -1742,6 +1743,58 @@
 						""
 					],
 					"text": "prepend gain"
+				}
+			},
+			{
+				"box": {
+					"id": "obj-68",
+					"maxclass": "live.dial",
+					"numinlets": 1,
+					"numoutlets": 2,
+					"patching_rect": [
+						190.0,
+						920.0,
+						44.0,
+						48.0
+					],
+					"outlettype": [
+						"",
+						"float"
+					],
+					"varname": "Room",
+					"parameter_enable": 1,
+					"saved_attribute_attributes": {
+						"valueof": {
+							"parameter_longname": "Room",
+							"parameter_shortname": "Room",
+							"parameter_type": 0,
+							"parameter_mmin": 0,
+							"parameter_mmax": 1,
+							"parameter_initial_enable": 1,
+							"parameter_unitstyle": 1,
+							"parameter_initial": [
+								0.5
+							]
+						}
+					}
+				}
+			},
+			{
+				"box": {
+					"id": "obj-69",
+					"maxclass": "newobj",
+					"numinlets": 1,
+					"numoutlets": 1,
+					"patching_rect": [
+						190.0,
+						975.0,
+						70.0,
+						22.0
+					],
+					"outlettype": [
+						""
+					],
+					"text": "prepend room"
 				}
 			}
 		],
@@ -3237,6 +3290,54 @@
 			{
 				"patchline": {
 					"source": [
+						"obj-13",
+						26
+					],
+					"destination": [
+						"obj-68",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-68",
+						0
+					],
+					"destination": [
+						"obj-69",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-69",
+						0
+					],
+					"destination": [
+						"obj-2",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-69",
+						0
+					],
+					"destination": [
+						"obj-11",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
 						"obj-5",
 						2
 					],
@@ -3542,6 +3643,18 @@
 					],
 					"destination": [
 						"obj-66",
+						0
+					]
+				}
+			},
+			{
+				"patchline": {
+					"source": [
+						"obj-5",
+						2
+					],
+					"destination": [
+						"obj-68",
 						0
 					]
 				}

@@ -57,6 +57,7 @@ struct DynBell {
     GainGlide gl;
     double f = 1000, bellQ = 1, sr = 48000;
     double unit = 0;       // dB at amount 1, from the detector (≤ 0)
+    double floor = 0;      // a standing cut the unit never goes above (≤ 0; 0 = none), also while quiet
     double applied = 0;    // dB now in the bell
     bool on = false, wide = false;
     UnitStat stat;
@@ -73,7 +74,7 @@ struct DynBell {
     void reset() {
         for (auto& b : bell) b.reset();
         det.reset(); ref.reset(); nb.reset(); wb.reset(); gl.reset();
-        unit = 0; applied = 0; on = false;
+        unit = floor; applied = 0; on = false;
     }
     inline void detect(double mid) {
         const double b = det.tick(mid);
@@ -84,9 +85,9 @@ struct DynBell {
     // the unit cut from the band's excess over its usual share `thr` (dB), full cut `range` dB above it; quiet = none
     void control(double thr, double range, double maxCut, bool measure) {
         const double level = wb.db();
-        if (level < -80) { unit = 0; return; }
+        if (level < -80) { unit = floor; return; }
         const double exc = nb.db() - level;
-        unit = -maxCut * clampd((exc - thr) / range, 0, 1);
+        unit = std::min(floor, -maxCut * clampd((exc - thr) / range, 0, 1));
         if (measure && level > -60) stat.add(unit);
     }
     // move toward `targetDb` (amount × unit, or the held average) and set the bell

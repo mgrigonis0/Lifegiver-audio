@@ -477,10 +477,140 @@ static void testLevelAndGain() {
     }
 }
 
+// 17c: own width by default, the room, a hat has no punch, the transient shaper keeps out of the highs, Clean's
+// standing cut, Identity's holding lines, a slow solve glides in, knobs stay usable
+static void test17c() {
+    std::printf("17c\n");
+    const double sr = 48000;
+    // roles only place: no role sets the width; the device's default is the sound's own width
+    {
+        Rig r;
+        r.msg("width", {0.3});
+        r.msg("pickrole", {ROLE_BED});
+        fails += expect(r.host.params.count("width") == 0 && r.ctl->inputs().width == 0.3 && Inputs().width == 0.5,
+                        "a role button leaves the width where the user put it (default: the sound's own width)");
+    }
+    // a hi-hat (only highs) has no punch to read; drums do
+    {
+        Stereo n = noiseSig(4.0, sr, 41);
+        Svf h1[2], h2[2];
+        for (int c = 0; c < 2; c++) { h1[c].set(Svf::HP, 5000, 0.7071, 0, sr); h2[c].set(Svf::HP, 5000, 0.7071, 0, sr); }
+        const size_t step = (size_t)(0.125 * sr);
+        for (size_t i = 0; i < n.size(); i++) {
+            const double env = 0.5 * std::exp(-(double)(i % step) / sr / 0.012);
+            n.l[i] = h2[0].tick(h1[0].tick(n.l[i] * env)); n.r[i] = h2[1].tick(h1[1].tick(n.r[i] * env));
+        }
+        const Profile hat = analyze(*makeTakeSet({toAudio(n, sr)}));
+        const Profile drums = analyze(*makeTakeSet({sig::drums(4)}));
+        fails += expect(hat.valid && !hat.readValid[Q_PUNCH] && hat.onsets > 10 && drums.readValid[Q_PUNCH],
+                        "a hi-hat reads no Punch (its 64 Hz-1 kHz band is empty: nothing to sharpen); drums still do");
+    }
+    // the transient shaper acts below ~2.5 kHz only: a bright hit's highs pass untouched, a low one is shaped
+    {
+        auto bursts = [&](double f) {
+            Stereo s = sineSig(f, 2.0, sr, 0.4);
+            const size_t step = (size_t)(0.25 * sr);
+            for (size_t i = 0; i < s.size(); i++) { const double e = std::exp(-(double)(i % step) / sr / 0.05); s.l[i] *= e; s.r[i] *= e; }
+            return s;
+        };
+        Plan p; p[P_TS_ATTACK] = 1.0;
+        const Stereo hi = bursts(8000), lo = bursts(150);
+        const Stereo ho = renderChain(p, hi, sr), lo2 = renderChain(p, lo, sr);
+        double dh = 0, dl = 0, eh = 0, el = 0;
+        for (size_t i = 0; i < hi.size(); i++) { dh += (ho.l[i] - hi.l[i]) * (ho.l[i] - hi.l[i]); eh += hi.l[i] * hi.l[i]; }
+        for (size_t i = 0; i < lo.size(); i++) { dl += (lo2.l[i] - lo.l[i]) * (lo2.l[i] - lo.l[i]); el += lo.l[i] * lo.l[i]; }
+        std::printf("    transient shaper (attack 1): change on 8 kHz hits %.1f dB, on 150 Hz hits %.1f dB (vs the signal)\n", powToDb(dh / eh + 1e-30), powToDb(dl / el + 1e-30));
+        fails += expect(powToDb(dh / eh + 1e-30) < -30 && powToDb(dl / el + 1e-30) > -20, "the transient shaper shapes the lows, the highs pass (no sharpened hat noise)");
+    }
+    // Clean's standing cut: with nothing playing in between, the tamer stays at the usual cut (a hit's start is cut
+    // like its body); a plan without it (older sets) behaves as before
+    {
+        Plan p; p[P_EXC_DEPTH] = 1; p[P_EXC_HZ] = 4300; p[P_EXC_Q] = 1.5; p[P_EXC_THR] = -14; p[P_EXC_FLOOR] = -6;
+        Stereo z; z.l.assign((size_t)sr, 0.0); z.r = z.l;
+        Stereo t = sineSig(4300, 0.02, sr, 0.3);
+        Stereo in = z; in.l.insert(in.l.end(), t.l.begin(), t.l.end()); in.r.insert(in.r.end(), t.r.begin(), t.r.end());
+        const Stereo o = renderChain(p, in, sr);
+        double a0 = 0, a1 = 0;
+        for (size_t i = z.size() + 48; i < z.size() + 240; i++) { a0 += in.l[i] * in.l[i]; a1 += o.l[i] * o.l[i]; }
+        std::printf("    a 4.3 kHz hit after 1 s of silence, its first 4 ms: %+.1f dB (standing cut -6 dB)\n", powToDb(a1 / a0));
+        fails += expect(powToDb(a1 / a0) < -4, "Clean's standing cut is already there when a hit starts");
+    }
+    // Identity's holding lines: an EQ band moved for a quality nobody asked for is shown as holding it
+    {
+        Solution s; s.ok = true;
+        s.tools[T_BITE] = -1.2; s.tools[T_AIR] = 3; s.asked[Q_AIR] = 5;
+        bool hold = false, air = false;
+        for (const Move& m : movesOf(s)) { hold = hold || (m.kind == MV_HOLD && m.q == Q_BITE); air = air || m.kind == MV_AIR_UP; }
+        fails += expect(hold && air, "Moves: 'Holding Bite' for Identity's counter-move, 'Lifting air' for the ask");
+    }
+    // a slow solve's plan glides in over ~0.4 s (S-shaped, no click); direct moves keep their quick glide
+    {
+        auto reach = [&](double tau, double sec) {
+            Chain ch; Plan a, b; b[P_MAKEUP_DB] = 6;
+            ch.reset(a, sr); ch.setTarget(b, tau);
+            std::vector<double> L((size_t)(sec * sr), 0.0), R = L;
+            ch.process(L.data(), R.data(), L.data(), R.data(), (long)L.size());
+            return ch.current()[P_MAKEUP_DB] / 6;
+        };
+        const double q50 = reach(0, 0.1), l50 = reach(LANDING_TAU, 0.1), l40 = reach(LANDING_TAU, 0.4), l6 = reach(LANDING_TAU, 0.6);
+        std::printf("    a new plan after 100 ms: direct %.0f %%, a slow solve's landing %.0f %% (0.4 s: %.0f %%, 0.6 s: %.0f %%)\n", q50 * 100, l50 * 100, l40 * 100, l6 * 100);
+        Chain ch; Plan a, b; b[P_MAKEUP_DB] = 6; b[P_BITE_DB] = 6;
+        ch.reset(a, sr);
+        Stereo t = sineSig(80, 1.5, sr, 0.4);
+        for (size_t d = 0; d < t.size(); d += 64) {
+            if (d == (size_t)(0.3 * sr)) ch.setTarget(b, LANDING_TAU);
+            if (d == (size_t)(0.5 * sr)) ch.setTarget(a, 0);   // a knob mid-landing: quick again, from where it is
+            ch.process(t.l.data() + d, t.r.data() + d, t.l.data() + d, t.r.data() + d, (long)std::min<size_t>(64, t.size() - d));
+        }
+        const ClickStats cs = findClicks(t.l);
+        std::printf("    a landing, then a knob halfway through it, low tone: clicks %ld\n", cs.count);
+        fails += expect(q50 > 0.99 && l50 < 0.5 && l40 > 0.85 && l6 > 0.97 && cs.count == 0,
+                        "a slow solve's landing glides in (~0.4 s), a knob mid-landing takes over smoothly: no clicks");
+    }
+    // the room is saved with the plan; knobs stay usable while tweaking (not re-decided by each solve)
+    {
+        Rig a;
+        a.init();
+        a.idle(2.0);
+        a.listen(sig::lead(5));
+        a.idle(3.0);
+        auto adj = [&]() { std::vector<int> v; const auto& k = a.host.uiLast["knobs"]; for (int q = 0; q < NQ; q++) v.push_back((int)k[(size_t)(6 * q + 3)]); return v; };
+        const std::vector<int> first = adj();
+        int flips = 0;
+        for (int i = 0; i < 12; i++) {
+            a.msg("clean", {(double)(i * 9)});
+            a.msg("bite", {(double)((i % 5) * 2 - 4)});
+            a.msg("depth", {0.2 + 0.05 * i});
+            a.idle(i % 3 == 0 ? 1.5 : 0.2);
+            if (adj() != first) flips++;
+        }
+        fails += expect(flips == 0, "the knobs stay usable while Clean, Bite and the distance move (no greying mid-tweak)");
+        a.msg("hi", {6000});
+        a.idle(0.1);
+        fails += expect(adj()[Q_AIR] == 0, "a Range that leaves no room for Air greys the Air knob");
+        a.msg("hi", {20000});
+        a.msg("room", {0.85});
+        a.msg("depth", {0.1});
+        a.idle(3.0);
+        const Plan saved = a.ctl->playing();
+        fails += expect(saved[P_AMB_SIZE] > roomSizeFor(0.5) + 0.2 && saved[P_AMB_MIX] > ambMixFor(0.1) + 0.05,
+                        "a large room: a bigger, louder room at the back");
+        Rig b;
+        b.host.pattr = a.host.pattr;
+        b.msg("room", {0.85}); b.msg("depth", {0.1}); b.msg("clean", {99}); b.msg("bite", {-2});
+        b.init();
+        b.idle(1.0);
+        bool same = true;
+        for (int i = 0; i < NP; i++) if (!bitEqual(b.ctl->playing()[i], saved[i])) same = false;
+        fails += expect(same && b.ctl->inputs().room == 0.85, "reopened: the room is saved with what plays (exactly the saved plan)");
+    }
+}
+
 int main(int argc, char** argv) {
     std::printf("lifegiver engine %s — offline tests\n", VERSION);
     if (argc > 1 && std::string(argv[1]) == "modules") { testModules(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
     if (argc > 1 && std::string(argv[1]) == "level") { testLevelAndGain(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
+    if (argc > 1 && std::string(argv[1]) == "17c") { test17c(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
     if (argc > 1 && std::string(argv[1]) == "brain") { testBrain(); std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails); return fails ? 1 : 0; }
     testLoad();
     testPassThrough();
@@ -497,6 +627,7 @@ int main(int argc, char** argv) {
     testBrain();
     testModules();
     testListenFlow();
+    test17c();
     testLevelAndGain();
     testCpu();
     std::printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails);

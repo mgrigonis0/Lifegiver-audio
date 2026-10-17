@@ -5,7 +5,8 @@
 //
 // Thread rules (CONVENTIONS): process() never allocates, locks or frees.
 //   - continuous values (Amount, Compare, its level): atomics, latest value wins, read once per block;
-//   - a new plan: by pointer through `cmds`; the old one goes back through `reps` and is freed on the main thread.
+//   - a new plan: by pointer through `cmds` (with its glide time); the old one goes back through `reps` and is freed
+//     on the main thread.
 // Values that arrive before audio starts (a set loading) apply at once; later changes glide.
 #pragma once
 #include <atomic>
@@ -124,7 +125,7 @@ private:
             if (c.type == C_PLAN && c.ptr) {
                 Plan* p = (Plan*)c.ptr;
                 if (first) { chain.setScale(scaleTarget.load()); chain.setAverage(averageTarget.load()); chain.reset(*p, sr); }
-                else chain.setTarget(*p);
+                else chain.setTarget(*p, c.a);   // c.a: the plan's glide per stage (0 = the chain's own)
                 if (plan) {
                     Report r;
                     r.type = R_GARBAGE_PLAN; r.ptr = plan;
