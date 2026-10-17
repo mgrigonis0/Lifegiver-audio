@@ -286,7 +286,7 @@ static void testListenFlow() {
     const Plan& pl = a.ctl->playing();
     const Solution& s = a.ctl->lastSolve();
     fails += expect(s.ok && s.reach > 0.6, "solved for the Lead stage (reach > 60 %)");
-    fails += expect(pl[P_BITE_DB] > 0.2, "the Lead's presence ask is played (a presence lift)");
+    fails += expect(pl[P_AIR_DB] > 0.2 && s.asked[Q_BITE] == 0.0, "the Lead's closeness is played as more air (17d: not presence, Clean's zone)");
     std::vector<double> mv = a.host.uiLast["moves"];
     fails += expect(mv.size() >= 5 && mv.size() % 5 == 0, "the Moves reach the view (as numbers)");
     std::vector<double> vr = a.host.uiLast["vars"];
@@ -302,7 +302,7 @@ static void testListenFlow() {
     fails += expect(fast > before + 0.5, "Bite +6: more presence at once (fast path)");
     a.host.holdJobs = false;
     a.idle(3.0);
-    fails += expect(a.ctl->lastSolve().asked[Q_BITE] > 6 && std::fabs(a.ctl->lastSolve().reached[Q_BITE] - a.ctl->lastSolve().asked[Q_BITE]) < 1.5,
+    fails += expect(a.ctl->lastSolve().asked[Q_BITE] > 5.99 && std::fabs(a.ctl->lastSolve().reached[Q_BITE] - a.ctl->lastSolve().asked[Q_BITE]) < 1.5,
                     "then re-solved on the takes: Bite reached within 1.5 steps of what was asked");
     a.idle(2.0);
     const Plan saved = a.ctl->playing();
@@ -489,6 +489,15 @@ static void test17c() {
         r.msg("pickrole", {ROLE_BED});
         fails += expect(r.host.params.count("width") == 0 && r.ctl->inputs().width == 0.3 && Inputs().width == 0.5,
                         "a role button leaves the width where the user put it (default: the sound's own width)");
+    }
+    // 17d: closeness lifts Air, not Bite (presence is Clean's zone: a front lift there cancelled its cut); further back
+    // presence still drops
+    {
+        Inputs f, bk; f.depth = 0.82; bk.depth = 0.2;
+        double pf[NQ], pbk[NQ];
+        stagePush(f, pf); stagePush(bk, pbk);
+        fails += expect(pf[Q_BITE] == 0.0 && pf[Q_AIR] > 0.5 && pbk[Q_BITE] < -0.5 && pbk[Q_AIR] < -0.5,
+                        "the front lifts air only (Clean keeps the harsh zone); the back still drops presence and air");
     }
     // a hi-hat (only highs) has no punch to read; drums do
     {

@@ -1,6 +1,6 @@
 # Lifegiver — Handoff
 
-_Last updated: 2026-10-17 (build 2026-10-17c built and tested offline; not yet tested in Live)_
+_Last updated: 2026-10-17 (build 2026-10-17d: 17c tested in Live by the user, "pretty good overall"; 17d = front cue fix)_
 
 ## What it does
 A Max for Live audio effect that listens to a sound (Arm, up to 4 short takes), reads what it is, and shapes it for its
@@ -12,11 +12,12 @@ relative **quality knobs**, and blends **characters A–E** (Polish, Warm, Bold,
 distance). Roles only place. Nothing may push sounds toward an average (no sameness).
 
 ## Current state
-- **17c built, all offline tests pass, strip render approved (`design/mockups/17c-strip-render.png`), pushed (CI
-  publishes the release). Waiting for the user's Live test (INSTALL.md list).**
-- 17b in Live (user): UI good; CPU 4 instances ≈ 15–19 % on the 2015 Intel Mac. 17c answers the rest of that test:
-  width by roles, room control, gentle Clean, hi-hat clicks, invisible Identity, sound shifting/knobs greying mid-tweak.
-- Next: the review, then Balance (Next step); then 17d (adaptive brain), 17e (colour) — Road.
+- **17c tested in Live: "pretty good overall".** A high-end concern turned out to be a stale reading (sound changed,
+  no re-Listen); no device change for that (the user: nothing reads unless asked).
+- **17d built (all offline tests pass):** the front distance cue lifts Air only, no longer Bite, so it no longer
+  cancels Clean's cut in the harsh zone (trumpet as Lead, Clean 40 %: zone +0.0 → −0.2 dB; real hats −1.0 → −1.3).
+  Pushed only after the user's OK.
+- Next: the whole-build review, then Balance (Next step); then the adaptive brain, colour — Road.
 
 ## Structure
 - `source/engine/` header-only C++17: `dsp.h`, `modules.h` (DynBell with `floor`, HiSmooth, Multiband, Ambience FDN),
@@ -43,7 +44,8 @@ Saved inputs (`inputsVector`) and plans (`PlanIdx`) only grow at the end (17b se
 - A slow solve's plan lands with a ~0.4 s S-glide (`LANDING_TAU` 70 ms/stage via the plan command); direct moves keep
   15 ms. Re-solve 0.8 s after the last change. Knob availability from the reading (bands: off < −60 dB, on ≥ −56) and
   the Range, never from a solve (a solve's zero point can hover at a limit).
-- Roles set distance and range only; width (and pan, room) are the user's.
+- Roles set distance and range only; width (and pan, room) are the user's. Distance cues: nearer = more Air and
+  attack, shorter tails; further = less presence, air and attack. Nearer never lifts Bite (Clean's zone, 17d).
 - Room: back wall → mix = ambMixFor(depth)·(0.4 + 1.2·room) (chain caps 0.5), size = 0.4 + 0.8·room; distance still
   decides how much room is heard (none in the front half). Large room at the very back ≤ −10.5 LU (limit −9).
   Reflections + 16-line Hadamard FDN, fixed line lengths (1 line rang; 8 still peaked).
@@ -82,10 +84,6 @@ instrument labels/families; mix awareness (a separate device); following the son
    a large room at the back feel right (mix cap 0.5); any knob greying or sound jumps left.
 2. **Before building anything else: review the whole build** for logic errors, redundancies and design flaws (the
    user asked; engine, view, generator, tests). Report findings with a recommendation each, one decision at a time.
-   Already found (user agreed it's needed): **the front distance cue fights Clean**: `stagePush` lifts Bite +1.5·f in
-   front, and Clean's excess cut sits in the same zone (trumpet as Lead: zone change +0.0 dB, Bite reach 0.2). Fix:
-   in front the cue lifts Air only (no Bite); further back Bite still drops. Clean does NOT step back for the stage
-   (that would just weaken Clean on every Lead). Check `module_tests` "roles only place" (expects Punch 0.3 at 0.6).
    Rejected: a "new sound? re-listen" hint (the user: nothing reads unless asked; redundant).
 3. **Then build 18a: Balance** (user approved the idea). A slider, 0 = as read, pivots the sound's low↔high balance
    around ~1 kHz, relative to the sound (no sameness). It adds matched pushes to the tone knobs (Weight/Warm one way,

@@ -307,7 +307,7 @@ static void testBrain() {
     double pb[NQ], pf[NQ];
     stagePush(back, pb);
     stagePush(front, pf);
-    fails += expect(pb[Q_BITE] < pf[Q_BITE] - 2 && pb[Q_AIR] < pf[Q_AIR] - 2 && pb[Q_PUNCH] < pf[Q_PUNCH] - 2 &&
+    fails += expect(pb[Q_BITE] < pf[Q_BITE] - 1 && pb[Q_AIR] < pf[Q_AIR] - 2 && pb[Q_PUNCH] < pf[Q_PUNCH] - 2 &&
                     stageLevelDb(back) < -2.5 && stageLevelDb(back) >= -3 && stageLevelDb(front) > -0.2,
                     "the back of the stage: darker, softer attacks, up to -3 dB (the front: none of that)");
 }

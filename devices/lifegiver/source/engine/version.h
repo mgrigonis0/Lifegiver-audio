@@ -3,5 +3,5 @@
 #pragma once
 
 namespace lg {
-constexpr const char* VERSION = "2026-10-17c";
+constexpr const char* VERSION = "2026-10-17d";
 }  // namespace lg

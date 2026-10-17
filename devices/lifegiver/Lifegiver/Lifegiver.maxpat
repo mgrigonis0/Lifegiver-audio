@@ -172,7 +172,7 @@
 					"outlettype": [
 						""
 					],
-					"text": "patch 2026-10-17c"
+					"text": "patch 2026-10-17d"
 				}
 			},
 			{

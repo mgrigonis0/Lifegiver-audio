@@ -34,14 +34,17 @@ Drag `Lifegiver.amxd` from that folder onto an audio track that plays something.
 The Max window (open the device editor, then Cmd+M) shows two lines when everything loaded:
 
 ```
-lifegiver: engine 2026-10-17c ready, device ...
-lifegiver: patch 2026-10-17c
+lifegiver: engine 2026-10-17d ready, device ...
+lifegiver: patch 2026-10-17d
 ```
 
 and, a moment later, `lifegiver: new device, id ....` (or `state restored, id ....` in a saved set).
 A red `lifegiver~` box or no sound: copy the red lines from the Max window and send them.
 
-## This build (2026-10-17c): what to check
+## This build (2026-10-17d): what to check
+
+17d (on top of 17c): a sound in front of the stage now gets a touch more **air** for closeness, no longer more
+**presence**, so Clean's taming of the harsh zone isn't undone on a Lead.
 
 New since 17b: the **width stays the sound's own** (roles no longer set it; the bubble's centre width is "own width"),
 the stage's **back wall sets the room** (small / room / large), **Clean is firmer**, **hi-hats no longer click**,

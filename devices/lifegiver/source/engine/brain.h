@@ -69,9 +69,11 @@ inline RolePreset rolePresetFor(int role, const Profile& p) {
 inline void stagePush(const Inputs& in, double* push) {
     for (int q = 0; q < NQ; q++) push[q] = 0;
     const double f = (clampd(in.depth, 0, 1) - 0.5) * 2;   // −1 back … +1 front
-    // further back: less presence, air and attack, smaller level jumps; nearer: shorter tails (further back, the
-    // ambience brings the tail). 16c also steadied the front (|f|): unintended, removed.
-    push[Q_BITE] += 1.5 * f; push[Q_AIR] += 1.5 * f; push[Q_PUNCH] += 1.5 * f; push[Q_TAIL] -= 1.5 * std::max(f, 0.0);
+    // further back: less presence, air and attack, smaller level jumps; nearer: more air and attack, shorter tails
+    // (further back, the ambience brings the tail). 16c also steadied the front (|f|): unintended, removed.
+    // 17d: nearer lifts Air only, not Bite: presence is the zone Clean tames, and a front lift there cancelled Clean's
+    // cut (trumpet as Lead: zone change +0.0 dB). Bite moves only when asked; further back it still drops.
+    push[Q_BITE] += 1.5 * std::min(f, 0.0); push[Q_AIR] += 1.5 * f; push[Q_PUNCH] += 1.5 * f; push[Q_TAIL] -= 1.5 * std::max(f, 0.0);
     push[Q_STEADY] += std::max(-f, 0.0);
     for (int q = 0; q < NQ; q++) push[q] = clampd(push[q], -4, 4);
 }
