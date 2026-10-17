@@ -12,11 +12,11 @@ relative **quality knobs**, and blends **characters A–E** (Polish, Warm, Bold,
 distance). Roles only place. Nothing may push sounds toward an average (no sameness).
 
 ## Current state
-- **17c built, all offline tests pass (CI-equivalent run locally); waiting for the user's OK on the strip render
-  (`design/mockups/17c-strip-render.png`), then push → CI → release, then the user's Live test (INSTALL.md list).**
+- **17c built, all offline tests pass, strip render approved (`design/mockups/17c-strip-render.png`), pushed (CI
+  publishes the release). Waiting for the user's Live test (INSTALL.md list).**
 - 17b in Live (user): UI good; CPU 4 instances ≈ 15–19 % on the 2015 Intel Mac. 17c answers the rest of that test:
   width by roles, room control, gentle Clean, hi-hat clicks, invisible Identity, sound shifting/knobs greying mid-tweak.
-- Next after the Live test: 17d (adaptive brain), 17e (colour) — Road.
+- Next: the review, then Balance (Next step); then 17d (adaptive brain), 17e (colour) — Road.
 
 ## Structure
 - `source/engine/` header-only C++17: `dsp.h`, `modules.h` (DynBell with `floor`, HiSmooth, Multiband, Ambience FDN),
@@ -78,9 +78,15 @@ instrument labels/families; mix awareness (a separate device); following the son
 - A reopened 17b set plays its plan with 17c's tamer curve (no standing cut until it re-plans): close, not identical.
 
 ## Next step
-The user's OK on the strip render → push (CI builds the release) → the user's Live test with INSTALL.md's 17c list.
-Open questions for that test: is Clean at 40 % now clearly audible on their hat; does a large room at the back feel
-right (cap 0.5 mix); any knob greying or sound jumps left. Then 17d.
+1. The user's Live test of 17c (INSTALL.md list). Open questions: is Clean at 40 % clearly audible on their hat; does
+   a large room at the back feel right (mix cap 0.5); any knob greying or sound jumps left.
+2. **Before building anything else: review the whole build** for logic errors, redundancies and design flaws (the
+   user asked; engine, view, generator, tests). Report findings with a recommendation each, one decision at a time.
+3. **Then build 18a: Balance** (user approved the idea). A slider, 0 = as read, pivots the sound's low↔high balance
+   around ~1 kHz, relative to the sound (no sameness). It adds matched pushes to the tone knobs (Weight/Warm one way,
+   Bite/Air the other), shown as their teal arcs: the solver reaches it with its tools, Identity doesn't fight it,
+   knob turns add on top. New Live parameter appended; a thin bar under the 8 knobs, centre mark, double-click = 0.
+   Open: smooth tilt (recommended) vs seesaw (lows and top only). Mockup first, build after "go".
 
 ## Road
 - **17d, adaptive brain** (RESEARCH "Backing for the adaptive brain"): Warm follows the body; crossovers placed
